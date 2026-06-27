@@ -1,0 +1,33 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  server:
+    build:
+      context: ./server
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017
+      - MONGODB_DB=xlventures
+      - CORS_ORIGINS=http://localhost:5173
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongo
+
+  client:
+    build:
+      context: ./client
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+    ports:
+      - "3000:80"
+    depends_on:
+      - server
+
+volumes:
+  mongo_data:
