@@ -26,6 +26,8 @@ function App() {
   const [actionLoading, setActionLoading] = useState(false);
   const [livePulse, setLivePulse] = useState(0);
   const [error, setError] = useState('');
+  const [editingRecommendationId, setEditingRecommendationId] = useState('');
+  const [draftDecision, setDraftDecision] = useState<'approved' | 'rejected'>('approved');
 
   const selectedAccount = useMemo(
     () => accounts.find((account) => account.id === selectedAccountId),
@@ -143,7 +145,48 @@ function App() {
       setError(reviewError instanceof Error ? reviewError.message : 'Failed to review recommendation');
     } finally {
       setActionLoading(false);
+      setEditingRecommendationId('');
     }
+  }
+
+  function beginEdit(recommendationId: string, currentStatus: string) {
+    setEditingRecommendationId(recommendationId);
+    setDraftDecision(currentStatus === 'rejected' ? 'rejected' : 'approved');
+  }
+
+  function cancelEdit() {
+    setEditingRecommendationId('');
+  }
+
+  function getReviewButtonClasses(
+    recommendationStatus: string,
+    actionStatus: 'approved' | 'rejected' | 'edited',
+    variant: 'approve' | 'edit' | 'reject',
+  ) {
+    const isPending = recommendationStatus === 'pending_review';
+    const isActive = recommendationStatus === actionStatus;
+
+    if (variant === 'approve') {
+      if (isActive || (isPending && actionStatus === 'approved')) {
+        return 'rounded-full bg-[#123b23] px-4 py-2 text-sm font-medium text-[#f6f3ea] transition hover:bg-[#1d4c2b] disabled:cursor-not-allowed disabled:opacity-60';
+      }
+
+      return 'rounded-full border border-[#d9ccb4] bg-transparent px-4 py-2 text-sm font-medium text-[#1a1f16] transition hover:bg-[#f8f3e8] disabled:cursor-not-allowed disabled:opacity-60';
+    }
+
+    if (variant === 'edit') {
+      if (isActive) {
+        return 'rounded-full bg-[#7ea84b] px-4 py-2 text-sm font-medium text-[#f6f3ea] transition hover:bg-[#6f9a3e] disabled:cursor-not-allowed disabled:opacity-60';
+      }
+
+      return 'rounded-full border border-[#d9ccb4] bg-white px-4 py-2 text-sm font-medium text-[#1a1f16] transition hover:bg-[#f8f3e8] disabled:cursor-not-allowed disabled:opacity-60';
+    }
+
+    if (isActive) {
+      return 'rounded-full bg-[#7a3e1d] px-4 py-2 text-sm font-medium text-[#f6f3ea] transition hover:bg-[#8e4b23] disabled:cursor-not-allowed disabled:opacity-60';
+    }
+
+    return 'rounded-full border border-[#d9ccb4] bg-transparent px-4 py-2 text-sm font-medium text-[#1a1f16] transition hover:bg-[#f8f3e8] disabled:cursor-not-allowed disabled:opacity-60';
   }
 
   return (
@@ -382,28 +425,81 @@ function App() {
                         ))}
                       </div>
 
-                      <div className="mt-5 flex flex-wrap gap-3">
-                        <button
-                          onClick={() => handleReview(recommendation.id, 'approved')}
-                          disabled={actionLoading}
-                          className="rounded-full bg-[#123b23] px-4 py-2 text-sm font-medium text-[#f6f3ea] transition hover:bg-[#1d4c2b] disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => handleReview(recommendation.id, 'edited')}
-                          disabled={actionLoading}
-                          className="rounded-full border border-[#d9ccb4] bg-white px-4 py-2 text-sm font-medium text-[#1a1f16] transition hover:bg-[#f8f3e8] disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleReview(recommendation.id, 'rejected')}
-                          disabled={actionLoading}
-                          className="rounded-full border border-[#d9ccb4] bg-transparent px-4 py-2 text-sm font-medium text-[#1a1f16] transition hover:bg-[#f8f3e8] disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          Reject
-                        </button>
+                      <div className="mt-5 space-y-3">
+                        {editingRecommendationId === recommendation.id ? (
+                          <div className="rounded-[22px] border border-[#d9ccb4] bg-[#fbf7ef] p-4">
+                            <div className="text-[11px] uppercase tracking-[0.24em] text-[#7a786f]">Select outcome</div>
+                            <div className="mt-3 flex flex-wrap gap-3">
+                              <button
+                                onClick={() => setDraftDecision('approved')}
+                                className={`inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold transition ${
+                                  draftDecision === 'approved'
+                                    ? 'bg-[#123b23] text-[#f6f3ea] ring-2 ring-[#7ea84b] ring-offset-2 ring-offset-[#fbf7ef]'
+                                    : 'border border-[#d9ccb4] bg-white text-[#1a1f16] hover:bg-[#f8f3e8]'
+                                }`}
+                              >
+                                <span className={`h-2.5 w-2.5 rounded-full ${draftDecision === 'approved' ? 'bg-[#acc86c]' : 'bg-[#d9ccb4]'}`} />
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => setDraftDecision('rejected')}
+                                className={`inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold transition ${
+                                  draftDecision === 'rejected'
+                                    ? 'bg-[#7a3e1d] text-[#f6f3ea] ring-2 ring-[#f0a07a] ring-offset-2 ring-offset-[#fbf7ef]'
+                                    : 'border border-[#d9ccb4] bg-white text-[#1a1f16] hover:bg-[#f8f3e8]'
+                                }`}
+                              >
+                                <span className={`h-2.5 w-2.5 rounded-full ${draftDecision === 'rejected' ? 'bg-[#7a3e1d]' : 'bg-[#d9ccb4]'}`} />
+                                Reject
+                              </button>
+                            </div>
+                            <div className="mt-4 flex flex-wrap gap-3">
+                              <button
+                                onClick={() => handleReview(recommendation.id, draftDecision)}
+                                disabled={actionLoading}
+                                className={`rounded-full px-4 py-2 text-sm font-medium text-[#f6f3ea] transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                                  draftDecision === 'approved' ? 'bg-[#123b23] hover:bg-[#1d4c2b]' : 'bg-[#7a3e1d] hover:bg-[#8e4b23]'
+                                }`}
+                              >
+                                Save {draftDecision === 'approved' ? 'approval' : 'rejection'}
+                              </button>
+                              <button
+                                onClick={cancelEdit}
+                                disabled={actionLoading}
+                                className="rounded-full border border-[#d9ccb4] bg-white px-4 py-2 text-sm font-medium text-[#1a1f16] transition hover:bg-[#f8f3e8] disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : recommendation.status === 'pending_review' ? (
+                          <div className="flex flex-wrap gap-3">
+                            <button
+                              onClick={() => handleReview(recommendation.id, 'approved')}
+                              disabled={actionLoading}
+                              className={getReviewButtonClasses(recommendation.status, 'approved', 'approve')}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => handleReview(recommendation.id, 'rejected')}
+                              disabled={actionLoading}
+                              className={getReviewButtonClasses(recommendation.status, 'rejected', 'reject')}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap gap-3">
+                            <button
+                              onClick={() => beginEdit(recommendation.id, recommendation.status)}
+                              disabled={actionLoading}
+                              className={getReviewButtonClasses(recommendation.status, 'edited', 'edit')}
+                            >
+                              Edit
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </article>
                   ))
