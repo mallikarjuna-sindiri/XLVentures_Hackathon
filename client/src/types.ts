@@ -55,3 +55,10 @@ export type KnowledgeSource = {
   type: string;
   contentSummary: string;
 };
+
+export type User = {
+  id: string;
+  email: string;
+  name: string;
+  picture?: string;
+};

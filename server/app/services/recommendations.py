@@ -1,10 +1,27 @@
 from __future__ import annotations
 from datetime import datetime, timezone
+import json
+import logging
+import google.generativeai as genai
 
 from app.schemas import InteractionCreate
 
+logger = logging.getLogger(__name__)
 
-def analyze_interaction(text: str) -> tuple[str, str, list[str]]:
+
+def get_gemini_model():
+    from app.core.config import settings
+    if not settings.gemini_api_key:
+        return None
+    try:
+        genai.configure(api_key=settings.gemini_api_key)
+        return genai.GenerativeModel("gemini-2.5-flash")
+    except Exception as e:
+        logger.error(f"Error configuring Google Generative AI: {e}")
+        return None
+
+
+def analyze_interaction_fallback(text: str) -> tuple[str, str, list[str]]:
     lowered = text.lower()
     if any(keyword in lowered for keyword in ["renewal", "churn", "risk", "concern", "drop", "competitor", "discount", "moving", "objection", "pricing"]):
         return (
@@ -23,6 +40,49 @@ def analyze_interaction(text: str) -> tuple[str, str, list[str]]:
         "General customer update",
         ["Routine interaction"],
     )
+
+
+async def analyze_interaction(text: str) -> tuple[str, str, list[str]]:
+    model = get_gemini_model()
+    if not model:
+        logger.info("Gemini API Key not set. Using local heuristic rules for interaction analysis.")
+        return analyze_interaction_fallback(text)
+    
+    prompt = f"""
+    You are an AI analyst for a Customer Success & Sales platform.
+    Analyze the following customer interaction text and classify it:
+    1. Risk level (must be exactly one of: "low", "medium", "high").
+       - Use "high" for churn risk, critical complaints, pricing objections, competitor threats, renewal issues.
+       - Use "medium" for commercial expansion interest, feature/technical onboarding hurdles, roadmap questions.
+       - Use "low" for general queries, status updates, positive feedback, routine follow-ups.
+    2. A brief, one-sentence summary of the interaction.
+    3. A list of 1-3 concrete bullet points of evidence supporting your classification.
+
+    Customer Interaction:
+    "{text}"
+
+    You MUST output your response in raw JSON format with exactly the following schema. Do not wrap in markdown code blocks:
+    {{
+        "risk_level": "low" | "medium" | "high",
+        "summary": "one sentence summary",
+        "evidence": ["point 1", "point 2"]
+    }}
+    """
+    try:
+        response = await model.generate_content_async(
+            prompt,
+            generation_config={"response_mime_type": "application/json"}
+        )
+        data = json.loads(response.text)
+        risk_level = data.get("risk_level", "low").lower()
+        if risk_level not in ["low", "medium", "high"]:
+            risk_level = "low"
+        summary = data.get("summary", "Customer signal logged")
+        evidence = data.get("evidence", ["Routine update"])
+        return risk_level, summary, evidence
+    except Exception as e:
+        logger.error(f"Error calling Gemini in analyze_interaction: {e}")
+        return analyze_interaction_fallback(text)
 
 
 async def build_recommendation(source: InteractionCreate, risk_level: str, account_id: str, domain: str, db=None) -> dict:

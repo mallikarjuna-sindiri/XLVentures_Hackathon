@@ -1,7 +1,11 @@
 from typing import Any
+import logging
+from app.services.recommendations import get_gemini_model
+
+logger = logging.getLogger(__name__)
 
 
-def generate_action_draft(recommendation: dict[str, Any], account: dict[str, Any]) -> str:
+def generate_action_draft_fallback(recommendation: dict[str, Any], account: dict[str, Any]) -> str:
     action = recommendation.get("action", "").lower()
     account_name = account.get("name", "Customer")
     owner = account.get("owner", "Customer Success Team")
@@ -65,3 +69,40 @@ Best,
 {owner}
 Customer Success Manager
 XL Ventures Platform"""
+
+
+async def generate_action_draft(recommendation: dict[str, Any], account: dict[str, Any]) -> str:
+    model = get_gemini_model()
+    if not model:
+        logger.info("Gemini API Key not set. Using local fallback templates for action draft.")
+        return generate_action_draft_fallback(recommendation, account)
+
+    action = recommendation.get("action", "")
+    reason = recommendation.get("reason", "")
+    evidence = ", ".join(recommendation.get("evidence", []))
+    account_name = account.get("name", "Customer")
+    owner = account.get("owner", "Customer Success Team")
+    domain = account.get("domain", "customer_success")
+
+    prompt = f"""
+    You are an AI Copilot for a Business Platform. Generate a professional communication draft.
+    
+    Account Name: {account_name}
+    Account Owner: {owner}
+    Domain: {domain}
+    Recommended Action to Draft: {action}
+    Reason: {reason}
+    Evidence: {evidence}
+    
+    Instructions:
+    - If the domain is 'customer_success': Draft a highly professional, polite email to the customer from the owner ({owner}). It should address the reason/objection, propose the next best action, and ask for a quick meeting or check-in. Keep the tone warm, consultative, and supportive.
+    - If the domain is 'sales_coaching' (or is internal routing): Draft an INTERNAL SALES ROUTING RECORD. It should contain a header, target account info, a summary of recent signals, a proposed action plan with clear checkboxes or numbered steps, and a status indicator.
+    
+    Do not add extra markdown code blocks (like ```email or similar) or annotations. Return ONLY the plain text of the draft.
+    """
+    try:
+        response = await model.generate_content_async(prompt)
+        return response.text.strip()
+    except Exception as e:
+        logger.error(f"Error calling Gemini in generate_action_draft: {e}")
+        return generate_action_draft_fallback(recommendation, account)

@@ -10,16 +10,10 @@ logger = logging.getLogger(__name__)
 async def seed_demo_data() -> None:
     try:
         db = get_database()
-        accounts = db.accounts
-        interactions = db.interactions
-        recommendations = db.recommendations
         playbooks = db.playbooks
         knowledge_sources = db.knowledge_sources
 
-        # Reset database for fresh demo presentation
-        await accounts.delete_many({})
-        await interactions.delete_many({})
-        await recommendations.delete_many({})
+        # Reset global data for fresh demo presentation
         await playbooks.delete_many({})
         await knowledge_sources.delete_many({})
 
@@ -112,7 +106,24 @@ async def seed_demo_data() -> None:
         await playbooks.insert_many(default_playbooks)
         logger.info("Successfully seeded domain playbooks")
 
-        # 3. Seed accounts for both domains
+    except Exception as exc:
+        logger.warning("Skipping global demo seed because MongoDB is unavailable: %s", exc)
+
+
+async def seed_user_demo_data(db, user_id: str) -> None:
+    """
+    Seeds a user's isolated workspace with demo accounts, signals, and recommendations.
+    """
+    try:
+        accounts = db.accounts
+        interactions = db.interactions
+        recommendations = db.recommendations
+
+        # Check if the user already has accounts to prevent double seeding
+        exists = await accounts.find_one({"userId": user_id})
+        if exists:
+            return
+
         clients = [
             # Customer Success Domain Accounts
             {
@@ -122,6 +133,7 @@ async def seed_demo_data() -> None:
                 "owner": "Maya Patel",
                 "status": "needs_attention",
                 "domain": "customer_success",
+                "userId": user_id,
                 "createdAt": datetime.now(timezone.utc),
             },
             {
@@ -131,6 +143,7 @@ async def seed_demo_data() -> None:
                 "owner": "Alex Chen",
                 "status": "healthy",
                 "domain": "customer_success",
+                "userId": user_id,
                 "createdAt": datetime.now(timezone.utc),
             },
             {
@@ -140,6 +153,7 @@ async def seed_demo_data() -> None:
                 "owner": "Sarah Jenkins",
                 "status": "active",
                 "domain": "customer_success",
+                "userId": user_id,
                 "createdAt": datetime.now(timezone.utc),
             },
             {
@@ -149,6 +163,7 @@ async def seed_demo_data() -> None:
                 "owner": "Maya Patel",
                 "status": "critical",
                 "domain": "customer_success",
+                "userId": user_id,
                 "createdAt": datetime.now(timezone.utc),
             },
             # Sales Coaching Domain Accounts
@@ -159,6 +174,7 @@ async def seed_demo_data() -> None:
                 "owner": "Alex Chen",
                 "status": "needs_attention",
                 "domain": "sales_coaching",
+                "userId": user_id,
                 "createdAt": datetime.now(timezone.utc),
             },
             {
@@ -168,6 +184,7 @@ async def seed_demo_data() -> None:
                 "owner": "Sarah Jenkins",
                 "status": "at_risk",
                 "domain": "sales_coaching",
+                "userId": user_id,
                 "createdAt": datetime.now(timezone.utc),
             },
             {
@@ -177,6 +194,7 @@ async def seed_demo_data() -> None:
                 "owner": "Maya Patel",
                 "status": "healthy",
                 "domain": "sales_coaching",
+                "userId": user_id,
                 "createdAt": datetime.now(timezone.utc),
             }
         ]
@@ -320,5 +338,7 @@ async def seed_demo_data() -> None:
                     "createdAt": datetime.now(timezone.utc),
                 })
 
+        logger.info("Successfully seeded user isolated workspace data")
+
     except Exception as exc:
-        logger.warning("Skipping demo seed because MongoDB is unavailable: %s", exc)
+        logger.warning("Skipping user workspace seed because MongoDB is unavailable: %s", exc)

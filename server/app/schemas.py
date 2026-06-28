@@ -17,6 +17,10 @@ class AccountBase(BaseModel):
     domain: str = "customer_success"
 
 
+class AccountCreate(AccountBase):
+    pass
+
+
 class AccountOut(AccountBase):
     id: str
 
@@ -76,6 +80,22 @@ class KnowledgeSourceOut(BaseModel):
     title: str
     type: str
     contentSummary: str
+
+
+class GoogleLoginPayload(BaseModel):
+    credential: str
+
+
+class UserOut(BaseModel):
+    id: str
+    email: str
+    name: str
+    picture: Optional[str] = None
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user: UserOut
 
 
 

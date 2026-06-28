@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import {
   analyzeAccount,
   createInteraction,
@@ -11,8 +11,12 @@ import {
   getRecommendationCopilotDraft,
   getKnowledgeSources,
   resetDatabase,
+  loginWithGoogle,
+  createAccount,
+  deleteAccount,
+  chatWithAccount,
 } from './lib/api';
-import type { Account, Interaction, Recommendation, Playbook, AgentLogEntry, KnowledgeSource } from './types';
+import type { Account, Interaction, Recommendation, Playbook, AgentLogEntry, KnowledgeSource, User } from './types';
 import {
   Shield,
   Brain,
@@ -36,8 +40,17 @@ import {
   RefreshCw,
   Sliders,
   Mail,
-  ChevronRight
+  ChevronRight,
+  Plus
 } from 'lucide-react';
+
+type ChatThread = {
+  id: string;
+  accountId: string;
+  title: string;
+  createdAt: string;
+  messages: Array<{ sender: 'user' | 'assistant'; text: string }>;
+};
 
 const priorityStyles: Record<string, string> = {
   high: 'bg-[#f0e6d3] text-[#7a3e1d] ring-1 ring-[#d8c7a5]',
@@ -55,8 +68,14 @@ const agentColors: Record<string, string> = {
 };
 
 function App() {
+  // Authentication State
+  const [user, setUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem('xl_auth_user');
+    return saved ? JSON.parse(saved) : null;
+  });
+
   // Navigation & Core States
-  const [activeTab, setActiveTab] = useState<'planner' | 'playbooks' | 'analytics'>('planner');
+  const [activeTab, setActiveTab] = useState<'planner' | 'playbooks' | 'analytics' | 'chat'>('planner');
   const [selectedDomain, setSelectedDomain] = useState<'customer_success' | 'sales_coaching'>('customer_success');
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
@@ -64,11 +83,80 @@ function App() {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [playbooks, setPlaybooks] = useState<Playbook[]>([]);
   const [knowledgeSources, setKnowledgeSources] = useState<KnowledgeSource[]>([]);
-  
+
+  // Account Creation Modal States
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [newAccountName, setNewAccountName] = useState('');
+  const [newAccountStage, setNewAccountStage] = useState('');
+  const [newAccountStatus, setNewAccountStatus] = useState('');
+  const [newAccountHealth, setNewAccountHealth] = useState(100);
+  const [newAccountOwner, setNewAccountOwner] = useState('');
+
+  // AI Chat Bot States
+  const [chatThreads, setChatThreads] = useState<ChatThread[]>(() => {
+    const saved = localStorage.getItem('xl_chat_threads');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [activeThreadId, setActiveThreadId] = useState<string>('');
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom of chat when new messages arrive
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatThreads, activeThreadId, chatLoading]);
+
+  // Persist chat threads to localStorage
+  useEffect(() => {
+    localStorage.setItem('xl_chat_threads', JSON.stringify(chatThreads));
+  }, [chatThreads]);
+
+  // Derive threads for selected account
+  const accountThreads = useMemo(() => {
+    return chatThreads.filter(t => t.accountId === selectedAccountId);
+  }, [chatThreads, selectedAccountId]);
+
+  const activeThread = useMemo(() => {
+    return chatThreads.find(t => t.id === activeThreadId);
+  }, [chatThreads, activeThreadId]);
+
+  const activeMessages = activeThread ? activeThread.messages : [];
+
+  // Auto-select latest thread for selected account, or auto-create if empty
+  useEffect(() => {
+    if (!selectedAccountId) return;
+    const currentThreads = chatThreads.filter(t => t.accountId === selectedAccountId);
+    if (currentThreads.length > 0) {
+      const exists = currentThreads.some(t => t.id === activeThreadId);
+      if (!exists) {
+        setActiveThreadId(currentThreads[0].id);
+      }
+    } else {
+      const threadId = Math.random().toString(36).substring(7);
+      const newThread = {
+        id: threadId,
+        accountId: selectedAccountId,
+        title: 'New Conversation',
+        createdAt: new Date().toLocaleString(),
+        messages: [],
+      };
+      setChatThreads(prev => [newThread, ...prev]);
+      setActiveThreadId(threadId);
+    }
+  }, [selectedAccountId]);
+  // Custom Confirmation Modal States
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmTitle, setConfirmTitle] = useState('');
+  const [confirmDescription, setConfirmDescription] = useState('');
+  const [onConfirmCallback, setOnConfirmCallback] = useState<(() => void) | null>(null);
+
   // Form input states
   const [source, setSource] = useState('meeting_note');
   const [text, setText] = useState('Customer mentioned slower adoption and asked for executive support.');
-  
+
   // Loading & Error States
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -143,8 +231,262 @@ function App() {
     setRecommendations(recommendationData);
   }
 
-  // Load App Data dynamically when domain changes
+  // Load Google Identity Services GSI script
   useEffect(() => {
+    if (user) return;
+
+    const initializeGoogleSignIn = () => {
+      const g = (window as any).google;
+      if (g && g.accounts && g.accounts.id) {
+        g.accounts.id.initialize({
+          client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID || '240930111466-gvn2vnn0r91bkfo8tlpns2b9a7a998ai.apps.googleusercontent.com',
+          callback: handleGoogleCredentialResponse,
+        });
+        g.accounts.id.renderButton(
+          document.getElementById('google-signin-btn'),
+          { theme: 'outline', size: 'large', width: '320' }
+        );
+        g.accounts.id.prompt(); // display the One Tap dialog
+      }
+    };
+
+    // Append script dynamically
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = initializeGoogleSignIn;
+    document.head.appendChild(script);
+
+    return () => {
+      // safe cleanup if element exists
+      try {
+        document.head.removeChild(script);
+      } catch (e) { }
+    };
+  }, [user]);
+
+  // Authentication callbacks
+  async function handleGoogleCredentialResponse(response: any) {
+    try {
+      setActionLoading(true);
+      setError('');
+      const data = await loginWithGoogle(response.credential);
+      localStorage.setItem('xl_auth_token', data.token);
+      localStorage.setItem('xl_auth_user', JSON.stringify(data.user));
+      setUser(data.user);
+      setSuccessMessage('Logged in successfully!');
+      setTimeout(() => setSuccessMessage(''), 3000);
+
+      // Load initial domain data
+      const [accountData, playbookData, knowledgeData] = await Promise.all([
+        getAccounts(selectedDomain),
+        getPlaybooks(selectedDomain),
+        getKnowledgeSources(),
+      ]);
+      setAccounts(accountData);
+      setPlaybooks(playbookData);
+      setKnowledgeSources(knowledgeData);
+      if (accountData.length > 0) {
+        setSelectedAccountId(accountData[0].id);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Google authentication failed');
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  function handleLogout() {
+    localStorage.removeItem('xl_auth_token');
+    localStorage.removeItem('xl_auth_user');
+    localStorage.removeItem('xl_chat_threads');
+    setUser(null);
+    setSelectedAccountId('');
+    setAccounts([]);
+    setInteractions([]);
+    setRecommendations([]);
+    setChatThreads([]);
+    setActiveThreadId('');
+  }
+
+  // Account creation callback
+  async function handleCreateAccount() {
+    if (!newAccountName.trim() || !newAccountOwner.trim()) {
+      setError('Please fill in all required fields (Name and Owner).');
+      return;
+    }
+    try {
+      setActionLoading(true);
+      setError('');
+
+      const payload = {
+        name: newAccountName,
+        stage: newAccountStage || (selectedDomain === 'customer_success' ? 'onboarding' : 'discovery'),
+        healthScore: newAccountHealth,
+        owner: newAccountOwner,
+        status: newAccountStatus || 'active',
+        domain: selectedDomain,
+      };
+
+      const newAcc = await createAccount(payload);
+
+      setAccounts(prev => [newAcc, ...prev]);
+      setSelectedAccountId(newAcc.id);
+
+      setNewAccountName('');
+      setNewAccountOwner('');
+      setNewAccountStage('');
+      setNewAccountStatus('');
+      setNewAccountHealth(100);
+      setIsCreateModalOpen(false);
+
+      setSuccessMessage('Account created successfully!');
+      setTimeout(() => setSuccessMessage(''), 4000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create account');
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  // Account deletion callback
+  async function handleDeleteAccount(accountId: string) {
+    setConfirmTitle('Delete Account');
+    setConfirmDescription('Are you sure you want to delete this account? This will permanently delete all associated signals, interactions, and recommendations.');
+    setOnConfirmCallback(() => async () => {
+      try {
+        setActionLoading(true);
+        setError('');
+        await deleteAccount(accountId);
+
+        // Remove account conversations from chatThreads state
+        setChatThreads(prev => prev.filter(t => t.accountId !== accountId));
+
+        const updatedAccounts = accounts.filter(acc => acc.id !== accountId);
+        setAccounts(updatedAccounts);
+
+        if (selectedAccountId === accountId) {
+          if (updatedAccounts.length > 0) {
+            setSelectedAccountId(updatedAccounts[0].id);
+          } else {
+            setSelectedAccountId('');
+            setInteractions([]);
+            setRecommendations([]);
+          }
+        }
+        setSuccessMessage('Account deleted successfully!');
+        setTimeout(() => setSuccessMessage(''), 4000);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to delete account');
+      } finally {
+        setActionLoading(false);
+        setShowConfirmModal(false);
+      }
+    });
+    setShowConfirmModal(true);
+  }
+
+  // Conversational chatbot message handler
+  const handleCreateNewChatThread = () => {
+    if (!selectedAccountId) return;
+    const threadId = Math.random().toString(36).substring(7);
+    const newThread: ChatThread = {
+      id: threadId,
+      accountId: selectedAccountId,
+      title: 'New Conversation',
+      createdAt: new Date().toLocaleString(),
+      messages: [],
+    };
+    setChatThreads(prev => [newThread, ...prev]);
+    setActiveThreadId(threadId);
+  };
+
+  const handleDeleteThread = (threadId: string) => {
+    setConfirmTitle('Delete Chat Thread');
+    setConfirmDescription('Are you sure you want to delete this chat conversation thread? This action cannot be undone.');
+    setOnConfirmCallback(() => () => {
+      setChatThreads(prev => {
+        const filtered = prev.filter(t => t.id !== threadId);
+        if (activeThreadId === threadId) {
+          const nextForAccount = filtered.filter(t => t.accountId === selectedAccountId);
+          if (nextForAccount.length > 0) {
+            setActiveThreadId(nextForAccount[0].id);
+          } else {
+            setActiveThreadId('');
+          }
+        }
+        return filtered;
+      });
+      setShowConfirmModal(false);
+    });
+    setShowConfirmModal(true);
+  };
+
+  async function handleSendChatMessage(customMessage?: string) {
+    const textToSend = (customMessage || chatInput).trim();
+    if (!selectedAccountId || !textToSend) return;
+
+    let currentThreadId = activeThreadId;
+    if (!currentThreadId) {
+      const newId = Math.random().toString(36).substring(7);
+      const newThread = {
+        id: newId,
+        accountId: selectedAccountId,
+        title: textToSend.substring(0, 24) + (textToSend.length > 24 ? '...' : ''),
+        createdAt: new Date().toLocaleString(),
+        messages: [],
+      };
+      setChatThreads(prev => [newThread, ...prev]);
+      setActiveThreadId(newId);
+      currentThreadId = newId;
+    }
+
+    try {
+      setChatLoading(true);
+      setError('');
+
+      const threadToUpdate = chatThreads.find(t => t.id === currentThreadId);
+      const currentHistory = threadToUpdate ? threadToUpdate.messages : [];
+      const updatedMessages = [...currentHistory, { sender: 'user' as const, text: textToSend }];
+
+      setChatThreads(prev => prev.map(t => {
+        if (t.id === currentThreadId) {
+          const isDefaultTitle = t.title === 'New Conversation';
+          return {
+            ...t,
+            title: isDefaultTitle ? (textToSend.substring(0, 24) + (textToSend.length > 24 ? '...' : '')) : t.title,
+            messages: updatedMessages
+          };
+        }
+        return t;
+      }));
+      setChatInput('');
+
+      const response = await chatWithAccount(selectedAccountId, {
+        message: textToSend,
+        history: currentHistory
+      });
+
+      setChatThreads(prev => prev.map(t => {
+        if (t.id === currentThreadId) {
+          return {
+            ...t,
+            messages: [...updatedMessages, { sender: 'assistant' as const, text: response.response }]
+          };
+        }
+        return t;
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to send chat message');
+    } finally {
+      setChatLoading(false);
+    }
+  }
+
+  // Load App Data dynamically when domain changes (if user is authenticated)
+  useEffect(() => {
+    if (!user) return;
     async function load() {
       try {
         setLoading(true);
@@ -172,7 +514,7 @@ function App() {
       }
     }
     void load();
-  }, [selectedDomain]);
+  }, [selectedDomain, user]);
 
   // Sync on Account Selection
   useEffect(() => {
@@ -213,7 +555,7 @@ function App() {
       setError('');
       const res = await resetDatabase();
       setSuccessMessage(res.message || 'Demo database successfully reset.');
-      
+
       // Reload current tab dataset
       const [accountData, playbookData, knowledgeData] = await Promise.all([
         getAccounts(selectedDomain),
@@ -260,27 +602,27 @@ function App() {
     try {
       setActionLoading(true);
       setError('');
-      
+
       const newRec = await analyzeAccount(selectedAccountId);
-      
+
       // Initialize simulated log printer
       setAnalyzingLogs([]);
       setActiveAgentIndex(0);
       setShowAgentLogOverlay(true);
-      
+
       const logs = newRec.agentLogs || [];
-      
+
       // Sequentially print logs to wow the judges
       for (let i = 0; i < logs.length; i++) {
         await new Promise((resolve) => setTimeout(resolve, 800));
         setAnalyzingLogs((prev) => [...prev, logs[i]]);
         setActiveAgentIndex(i + 1);
       }
-      
+
       // Hold overlay brief moment
       await new Promise((resolve) => setTimeout(resolve, 1000));
       setShowAgentLogOverlay(false);
-      
+
       // Refresh UI state
       await refreshAccountData(selectedAccountId);
       setSuccessMessage('Planner Agent execution completed. Review candidate action below.');
@@ -320,7 +662,7 @@ function App() {
       setError('');
       setCopiedDraft(false);
       setCopilotRecommendation(recommendation);
-      
+
       const result = await getRecommendationCopilotDraft(recommendation.id);
       setCopilotDraft(result.draft);
       setShowCopilotDrawer(true);
@@ -354,7 +696,7 @@ function App() {
     try {
       setActionLoading(true);
       setError('');
-      
+
       const updated = await updatePlaybook(playbookId, {
         name: playbookForm.name,
         action: playbookForm.action,
@@ -385,9 +727,56 @@ function App() {
     setEditingRecommendationId('');
   }
 
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-[#0d2214] text-white flex flex-col items-center justify-center p-6 relative overflow-hidden font-sans">
+        {/* Decorative glowing orbs */}
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#acc86c]/10 rounded-full blur-[100px] animate-pulse" />
+        <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-[#123b23]/40 rounded-full blur-[120px]" />
+
+        <div className="max-w-md w-full text-center space-y-8 z-10">
+          <div className="space-y-3">
+            <div className="mx-auto grid h-16 w-16 place-items-center rounded-[20px] border border-white/20 bg-white/5 shadow-2xl text-xl font-bold tracking-[0.2em] text-[#acc86c] animate-bounce">
+              XL
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold uppercase tracking-[0.25em] text-[#acc86c]">XL Ventures</h1>
+              <p className="text-xs text-white/50 uppercase tracking-[0.15em] mt-1">Decision Intelligence OS</p>
+            </div>
+          </div>
+
+          <div className="bg-white/5 border border-white/10 backdrop-blur-md rounded-[32px] p-8 shadow-2xl space-y-6">
+            <div className="space-y-2">
+              <h2 className="text-lg font-bold text-white/95">Sign in to your account</h2>
+              <p className="text-xs text-white/60 leading-relaxed max-w-[280px] mx-auto">
+                Access your B2B Customer Success & Sales Orchestrated loop dashboard.
+              </p>
+            </div>
+
+            {/* Error alerts */}
+            {error && (
+              <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300 text-left">
+                {error}
+              </div>
+            )}
+
+            {/* Google Identity Services rendering container */}
+            <div className="flex justify-center py-2">
+              <div id="google-signin-btn" className="w-full max-w-[320px] rounded-xl overflow-hidden shadow-lg border border-white/10 bg-white" />
+            </div>
+
+            <div className="text-[10px] text-white/40 uppercase tracking-widest pt-2 border-t border-white/5">
+              Secure Corporate SSO Authentication
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#f6f3ea] text-[#1a1f16] font-sans antialiased selection:bg-[#acc86c]/30">
-      
+
       {/* 1. Header Banner */}
       <header className="sticky top-0 z-40 border-b border-white/10 bg-[#102f1b]/95 text-white backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
@@ -403,36 +792,43 @@ function App() {
           <div className="flex items-center bg-black/20 p-1 rounded-full border border-white/5">
             <button
               onClick={() => { setActiveTab('planner'); setError(''); }}
-              className={`px-4 py-1.5 rounded-full text-xs font-semibold tracking-[0.05em] transition flex items-center gap-2 ${
-                activeTab === 'planner'
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold tracking-[0.05em] transition flex items-center gap-2 ${activeTab === 'planner'
                   ? 'bg-[#123b23] text-white shadow-md ring-1 ring-white/10'
                   : 'text-white/60 hover:text-white/95'
-              }`}
+                }`}
             >
               <Brain className="h-3.5 w-3.5" />
               Planner Loop
             </button>
             <button
               onClick={() => { setActiveTab('playbooks'); setError(''); }}
-              className={`px-4 py-1.5 rounded-full text-xs font-semibold tracking-[0.05em] transition flex items-center gap-2 ${
-                activeTab === 'playbooks'
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold tracking-[0.05em] transition flex items-center gap-2 ${activeTab === 'playbooks'
                   ? 'bg-[#123b23] text-white shadow-md ring-1 ring-white/10'
                   : 'text-white/60 hover:text-white/95'
-              }`}
+                }`}
             >
               <Sliders className="h-3.5 w-3.5" />
               Playbooks & KB
             </button>
             <button
               onClick={() => { setActiveTab('analytics'); setError(''); }}
-              className={`px-4 py-1.5 rounded-full text-xs font-semibold tracking-[0.05em] transition flex items-center gap-2 ${
-                activeTab === 'analytics'
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold tracking-[0.05em] transition flex items-center gap-2 ${activeTab === 'analytics'
                   ? 'bg-[#123b23] text-white shadow-md ring-1 ring-white/10'
                   : 'text-white/60 hover:text-white/95'
-              }`}
+                }`}
             >
               <BarChart3 className="h-3.5 w-3.5" />
               Analytics
+            </button>
+            <button
+              onClick={() => { setActiveTab('chat'); setError(''); }}
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold tracking-[0.05em] transition flex items-center gap-2 ${activeTab === 'chat'
+                  ? 'bg-[#123b23] text-white shadow-md ring-1 ring-white/10'
+                  : 'text-white/60 hover:text-white/95'
+                }`}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              AI Chat
             </button>
           </div>
 
@@ -461,8 +857,26 @@ function App() {
               </button>
             </div>
 
-            <div className="hidden lg:flex rounded-full border border-[#acc86c]/30 bg-[#acc86c]/10 px-3 py-1.5 text-[9px] uppercase font-bold tracking-[0.24em] text-[#acc86c]">
-              Verified Platform
+            {/* Google SSO User Info & Logout */}
+            <div className="flex items-center gap-3">
+              {user.picture && (
+                <img
+                  src={user.picture}
+                  alt={user.name}
+                  className="h-7 w-7 rounded-full border border-white/20 shadow-md"
+                  referrerPolicy="no-referrer"
+                />
+              )}
+              <div className="hidden md:block text-left">
+                <div className="text-[10px] font-bold text-white/90 leading-tight">{user.name}</div>
+                <div className="text-[8px] text-white/50 leading-none truncate max-w-[120px]">{user.email}</div>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="rounded-full bg-white/10 hover:bg-red-500/20 hover:text-red-350 border border-white/10 px-3 py-1.5 text-[9px] uppercase font-bold tracking-wider transition"
+              >
+                Logout
+              </button>
             </div>
           </div>
         </div>
@@ -470,13 +884,23 @@ function App() {
 
       {/* Main Grid Workspace */}
       <div className="mx-auto grid w-full max-w-[1600px] gap-6 px-4 py-6 lg:grid-cols-[320px_minmax(0,1fr)] lg:px-6">
-        
+
         {/* Sidebar: Workflows & Accounts List */}
         <aside className="h-fit rounded-[24px] border border-[#d9ccb4] bg-[#123b23] text-white shadow-lg p-5 space-y-6">
           <div>
             <h2 className="text-xs font-bold uppercase tracking-[0.28em] text-[#acc86c] mb-3">Workspace Context</h2>
             <div className="rounded-2xl bg-white/5 border border-white/10 p-4">
-              <div className="text-[10px] uppercase font-semibold text-[#dbe6be]">Active Account</div>
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] uppercase font-semibold text-[#dbe6be]">Active Account</span>
+                {selectedAccount && (
+                  <button
+                    onClick={() => handleDeleteAccount(selectedAccountId)}
+                    className="text-[9px] uppercase font-bold text-red-400 hover:text-red-300 transition duration-150"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
               <div className="mt-1 text-md font-bold text-white">{selectedAccount?.name || 'No Accounts Loaded'}</div>
               <p className="mt-1 text-xs text-white/60 leading-relaxed">
                 {selectedAccount ? `Stage: ${selectedAccount.stage.replace('_', ' ')} · Owner: ${selectedAccount.owner}` : ''}
@@ -496,20 +920,18 @@ function App() {
                 const isActive = currentStep === index + 1;
                 const isCompleted = currentStep > index + 1;
                 return (
-                  <div key={step.step} className={`rounded-xl border p-3 transition-all duration-300 ${
-                    isActive 
-                      ? 'border-[#acc86c]/30 bg-white/10 shadow-sm' 
+                  <div key={step.step} className={`rounded-xl border p-3 transition-all duration-300 ${isActive
+                      ? 'border-[#acc86c]/30 bg-white/10 shadow-sm'
                       : isCompleted
-                      ? 'border-white/5 bg-white/5 opacity-65'
-                      : 'border-white/5 bg-transparent opacity-45'
-                  }`}>
+                        ? 'border-white/5 bg-white/5 opacity-65'
+                        : 'border-white/5 bg-transparent opacity-45'
+                    }`}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className={`rounded-full px-2 py-0.5 text-[9px] uppercase tracking-[0.15em] font-bold ${
-                          isActive 
-                            ? 'bg-[#acc86c] text-[#123b23]' 
+                        <span className={`rounded-full px-2 py-0.5 text-[9px] uppercase tracking-[0.15em] font-bold ${isActive
+                            ? 'bg-[#acc86c] text-[#123b23]'
                             : 'bg-white/10 text-white'
-                        }`}>{step.step}</span>
+                          }`}>{step.step}</span>
                         <div className="text-xs font-semibold text-white">{step.title}</div>
                       </div>
                       {isCompleted ? (
@@ -527,8 +949,17 @@ function App() {
           {/* Accounts Selector */}
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-xs font-bold uppercase tracking-[0.28em] text-[#acc86c]">Active Accounts</h2>
-              <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/80 font-bold">{accounts.length}</span>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-bold uppercase tracking-[0.28em] text-[#acc86c]">Active Accounts</h2>
+                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/80 font-bold">{accounts.length}</span>
+              </div>
+              <button
+                onClick={() => setIsCreateModalOpen(true)}
+                className="rounded-full bg-[#acc86c]/20 hover:bg-[#acc86c]/30 text-[#acc86c] px-3 py-1 text-[9px] uppercase font-bold tracking-wider transition flex items-center gap-1"
+              >
+                <Plus className="h-3 w-3" />
+                Add
+              </button>
             </div>
 
             <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
@@ -543,22 +974,20 @@ function App() {
                   const isActive = account.id === selectedAccountId;
                   const isCritical = account.status === 'critical' || account.status === 'at_risk';
                   const isAttention = account.status === 'needs_attention';
-                  
+
                   return (
                     <button
                       key={account.id}
-                      className={`w-full rounded-xl border p-3 text-left transition-all duration-200 hover:scale-[1.01] ${
-                        isActive 
-                          ? 'border-[#acc86c] bg-white/12 shadow-sm' 
+                      className={`w-full rounded-xl border p-3 text-left transition-all duration-200 hover:scale-[1.01] ${isActive
+                          ? 'border-[#acc86c] bg-white/12 shadow-sm'
                           : 'border-white/5 bg-white/5 hover:bg-white/10'
-                      }`}
+                        }`}
                       onClick={() => setSelectedAccountId(account.id)}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="text-xs font-bold text-white truncate">{account.name}</div>
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold text-white ${
-                          isCritical ? 'bg-red-600' : isAttention ? 'bg-amber-600' : 'bg-[#acc86c] text-[#123b23]'
-                        }`}>{account.healthScore}</span>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold text-white ${isCritical ? 'bg-red-600' : isAttention ? 'bg-amber-600' : 'bg-[#acc86c] text-[#123b23]'
+                          }`}>{account.healthScore}</span>
                       </div>
                       <div className="mt-2 flex items-center justify-between text-[9px] uppercase tracking-[0.1em] text-white/50">
                         <span>{account.stage.replace('_', ' ')}</span>
@@ -710,9 +1139,8 @@ function App() {
                                     {(recommendation.confidence * 100).toFixed(0)}% confidence
                                   </span>
                                 </div>
-                                <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.05em] ${
-                                  isApproved ? 'bg-emerald-100 text-emerald-800' : isRejected ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'
-                                }`}>
+                                <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.05em] ${isApproved ? 'bg-emerald-100 text-emerald-800' : isRejected ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'
+                                  }`}>
                                   {recommendation.status.replace('_', ' ')}
                                 </span>
                               </div>
@@ -736,17 +1164,15 @@ function App() {
                                     <div className="flex gap-2">
                                       <button
                                         onClick={() => setDraftDecision('approved')}
-                                        className={`flex-1 text-center py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-                                          draftDecision === 'approved' ? 'bg-[#123b23] text-white' : 'bg-white border border-[#d9ccb4] text-[#1a1f16]'
-                                        }`}
+                                        className={`flex-1 text-center py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${draftDecision === 'approved' ? 'bg-[#123b23] text-white' : 'bg-white border border-[#d9ccb4] text-[#1a1f16]'
+                                          }`}
                                       >
                                         <Check className="h-3.5 w-3.5" /> Approve
                                       </button>
                                       <button
                                         onClick={() => setDraftDecision('rejected')}
-                                        className={`flex-1 text-center py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-                                          draftDecision === 'rejected' ? 'bg-red-800' : 'bg-white border border-[#d9ccb4] text-[#1a1f16]'
-                                        }`}
+                                        className={`flex-1 text-center py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${draftDecision === 'rejected' ? 'bg-red-800' : 'bg-white border border-[#d9ccb4] text-[#1a1f16]'
+                                          }`}
                                       >
                                         <X className="h-3.5 w-3.5" /> Reject
                                       </button>
@@ -841,9 +1267,8 @@ function App() {
                               <span className="rounded-full bg-[#f8f3e8] border border-[#d9ccb4] px-2 py-0.5 text-[9px] uppercase tracking-[0.05em] font-bold text-[#7a786f]">
                                 {interaction.source.replace('_', ' ')}
                               </span>
-                              <span className={`text-[10px] font-bold uppercase tracking-[0.05em] ${
-                                isHigh ? 'text-red-700' : isMed ? 'text-amber-700' : 'text-emerald-700'
-                              }`}>
+                              <span className={`text-[10px] font-bold uppercase tracking-[0.05em] ${isHigh ? 'text-red-700' : isMed ? 'text-amber-700' : 'text-emerald-700'
+                                }`}>
                                 {interaction.riskLevel} Risk
                               </span>
                             </div>
@@ -968,9 +1393,8 @@ function App() {
                           <article key={playbook.id} className="bg-white rounded-2xl border border-[#e4d9c5] p-4 flex flex-col justify-between hover:shadow-md transition">
                             <div className="space-y-3">
                               <div className="flex items-center justify-between">
-                                <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.05em] ${
-                                  isHigh ? 'bg-red-100 text-red-800' : isMed ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
-                                }`}>
+                                <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.05em] ${isHigh ? 'bg-red-100 text-red-800' : isMed ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                                  }`}>
                                   Trigger: {playbook.triggerRisk} Risk
                                 </span>
                                 <span className="text-xs font-bold text-[#acc86c]">{(playbook.confidence * 100).toFixed(0)}% Conf</span>
@@ -981,7 +1405,7 @@ function App() {
                                 Action: {playbook.action}
                               </div>
                               <p className="text-[10px] leading-relaxed text-[#7a786f]">{playbook.reason}</p>
-                              
+
                               <div className="flex flex-wrap gap-1">
                                 {playbook.evidence.map((item) => (
                                   <span key={item} className="bg-slate-100 text-slate-700 rounded px-1.5 py-0.5 text-[8px] font-medium">
@@ -1082,7 +1506,7 @@ function App() {
                 {/* SVG Visual graph 2: Churn Acceptance Trend */}
                 <div className="bg-white rounded-2xl border border-[#e4d9c5] p-5 space-y-3 shadow-sm flex flex-col justify-between">
                   <h3 className="text-xs font-bold uppercase tracking-[0.1em] text-[#123b23]">Human Acceptance Trend (5 Days)</h3>
-                  
+
                   <div className="w-full h-32 flex items-center justify-center relative bg-gradient-to-b from-[#fbfcfb] to-white rounded-lg p-1 border border-slate-50">
                     <svg className="w-full h-full" viewBox="0 0 100 30" preserveAspectRatio="none">
                       <defs>
@@ -1124,6 +1548,214 @@ function App() {
                     <span>Wed (82%)</span>
                     <span>Thu (84%)</span>
                     <span>Fri (88%)</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* TAB 4: AI ACCOUNT CHAT */}
+          {activeTab === 'chat' && (
+            <section className="w-full space-y-4">
+              {/* Account Inline Profile Header Bar */}
+              {selectedAccount && (
+                <div className="rounded-[28px] border border-[#e2d8c2] bg-white px-6 py-4 shadow-sm flex flex-wrap gap-6 items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#123b23] text-white">
+                      <Sparkles className="h-4 w-4 text-[#acc86c]" />
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase font-bold text-[#7a786f]">Active Account</div>
+                      <div className="text-md font-bold text-[#123b23]">{selectedAccount.name}</div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-6 items-center">
+                    <div>
+                      <div className="text-[9px] uppercase font-bold text-[#7a786f]">CSM / Owner</div>
+                      <div className="text-xs font-semibold text-slate-700">{selectedAccount.owner}</div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] uppercase font-bold text-[#7a786f]">Stage</div>
+                      <span className="inline-block rounded-md bg-[#edf3e1] text-[#52702f] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+                        {selectedAccount.stage.replace('_', ' ')}
+                      </span>
+                    </div>
+                    <div>
+                      <div className="text-[9px] uppercase font-bold text-[#7a786f]">Status</div>
+                      <span className="inline-block rounded-md bg-[#e7f0da] text-[#44652d] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+                        {selectedAccount.status.replace('_', ' ')}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 border-l border-[#e2d8c2] pl-6">
+                      <div>
+                        <div className="text-[9px] uppercase font-bold text-[#7a786f] text-right mb-0.5">Health Score</div>
+                        <div className="w-24 bg-[#f8f3e8] rounded-full h-1.5">
+                          <div className="h-1.5 rounded-full bg-[#acc86c]" style={{ width: `${selectedAccount.healthScore}%` }} />
+                        </div>
+                      </div>
+                      <span className="text-xs font-bold text-[#acc86c] bg-[#123b23] px-2 py-1 rounded-lg">{selectedAccount.healthScore}/100</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Main Split Chat & Threads Layout */}
+              <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)] h-[calc(100vh-210px)] min-h-[620px]">
+                {/* Left Side: ChatGPT-style Threads Sidebar */}
+                <div className="rounded-[28px] border border-[#e2d8c2] bg-white p-5 flex flex-col justify-between overflow-hidden shadow-sm h-full">
+                  <div className="space-y-4 flex-1 flex flex-col min-h-0">
+                    <button
+                      onClick={handleCreateNewChatThread}
+                      disabled={!selectedAccountId}
+                      className="w-full bg-[#123b23] hover:bg-[#1d4c2b] disabled:opacity-50 text-white px-4 py-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm"
+                    >
+                      <Plus className="h-4 w-4 text-[#acc86c]" />
+                      New Chat
+                    </button>
+
+                    <div className="flex-1 overflow-y-auto space-y-1.5 min-h-0 pr-1 text-left">
+                      <div className="text-[9px] uppercase font-bold tracking-wider text-[#7a786f] px-2 mb-2">Chat History</div>
+                      {accountThreads.length === 0 ? (
+                        <div className="text-[10px] text-slate-400 italic text-center p-4">No threads yet</div>
+                      ) : (
+                        accountThreads.map((thread) => {
+                          const isActive = thread.id === activeThreadId;
+                          return (
+                            <div
+                              key={thread.id}
+                              className={`w-full flex items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-medium cursor-pointer transition ${isActive
+                                  ? 'bg-[#123b23]/10 text-[#123b23] border border-[#acc86c]/30'
+                                  : 'hover:bg-slate-100 text-slate-600 border border-transparent'
+                                }`}
+                              onClick={() => setActiveThreadId(thread.id)}
+                            >
+                              <span className="truncate flex-1 pr-2">💬 {thread.title}</span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteThread(thread.id);
+                                }}
+                                className="text-slate-400 hover:text-red-500 opacity-60 hover:opacity-100 transition p-0.5"
+                                title="Delete Thread"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Side: Chat Window */}
+                <div className="rounded-[28px] border border-[#e2d8c2] bg-[#fbf7ef] p-6 shadow-sm flex flex-col justify-between overflow-hidden h-full">
+                  <div>
+                    <div className="flex items-center justify-between border-b border-[#e2d8c2] pb-4">
+                      <div>
+                        <span className="text-[10px] uppercase font-bold tracking-[0.2em] text-[#7a786f]">Conversational Assistant</span>
+                        <h2 className="text-md font-bold text-[#123b23] mt-0.5">
+                          {activeThread ? activeThread.title : 'AI Account Copilot'}
+                        </h2>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-[#acc86c] animate-pulse" />
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-550">Active</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Chat Message Window */}
+                  <div className="flex-1 my-4 bg-white/60 border border-[#e4d9c5] rounded-2xl p-4 overflow-y-auto space-y-3 text-xs flex flex-col">
+                    {(!selectedAccount) ? (
+                      <div className="m-auto text-center space-y-2 text-[#7a786f]">
+                        <Brain className="h-8 w-8 mx-auto text-[#123b23] opacity-40 animate-pulse" />
+                        <p className="italic">Select a client account to begin a secure consultation session.</p>
+                      </div>
+                    ) : (!activeThread || activeMessages.length === 0) ? (
+                      <div className="m-auto text-center space-y-2 text-[#7a786f]">
+                        <Sparkles className="h-6 w-6 mx-auto text-[#acc86c]" />
+                        <p className="font-semibold text-sm">New Conversation</p>
+                        <p className="text-[10px] max-w-md mx-auto leading-relaxed">Ask anything about {selectedAccount.name}. The AI assistant will help you analyze signals and next playbook recommendations.</p>
+                      </div>
+                    ) : (
+                      activeMessages.map((msg, i) => {
+                        const isUser = msg.sender === 'user';
+                        return (
+                          <div
+                            key={i}
+                            className={`max-w-[75%] rounded-2xl px-4 py-2.5 leading-relaxed shadow-sm ${isUser
+                              ? 'ml-auto bg-[#123b23] text-white rounded-br-none'
+                              : 'mr-auto bg-[#edf3e1] text-[#123b23] rounded-bl-none border border-[#c9d9ae] whitespace-pre-wrap text-left'
+                              }`}
+                          >
+                            <div className="text-[9px] uppercase font-bold tracking-wider mb-1 opacity-60">
+                              {isUser ? 'You' : 'AI Assistant'}
+                            </div>
+                            <div>{msg.text}</div>
+                          </div>
+                        );
+                      })
+                    )}
+
+                    {chatLoading && (
+                      <div className="mr-auto bg-slate-100 rounded-2xl rounded-bl-none px-4 py-3 flex items-center gap-2 text-slate-500 border border-slate-200">
+                        <div className="flex gap-1">
+                          <span className="h-1.5 w-1.5 bg-[#acc86c] rounded-full animate-bounce" />
+                          <span className="h-1.5 w-1.5 bg-[#acc86c] rounded-full animate-bounce [animation-delay:0.2s]" />
+                          <span className="h-1.5 w-1.5 bg-[#acc86c] rounded-full animate-bounce [animation-delay:0.4s]" />
+                        </div>
+                        <span className="text-[10px] italic">AI is synthesizing context...</span>
+                      </div>
+                    )}
+                    {/* Anchor to scroll to the latest messages */}
+                    <div ref={chatEndRef} />
+                  </div>
+
+                  {/* Suggested Prompts & Input Block */}
+                  <div className="space-y-3">
+                    {/* Inline Suggested Prompts Horizontal Pills */}
+                    {selectedAccount && (
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <span className="text-[9px] uppercase font-bold text-[#7a786f]">Suggested:</span>
+                        {[
+                          'Analyze current churn risk',
+                          'Draft an outreach email to CSM',
+                          'List recent signals',
+                          'What next playbook actions apply?'
+                        ].map((promptText) => (
+                          <button
+                            key={promptText}
+                            onClick={() => handleSendChatMessage(promptText)}
+                            disabled={chatLoading}
+                            className="rounded-full bg-white hover:bg-[#acc86c]/10 border border-[#e4d9c5] hover:border-[#acc86c] px-3 py-1.5 text-[10px] text-slate-700 font-medium transition disabled:opacity-50"
+                          >
+                            💬 {promptText}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Text Input Row */}
+                    <div className="border-t border-[#e2d8c2] pt-3 flex gap-2">
+                      <input
+                        type="text"
+                        disabled={!selectedAccountId || chatLoading}
+                        placeholder={selectedAccount ? `Ask about ${selectedAccount.name}...` : 'Select an account to chat'}
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') void handleSendChatMessage(); }}
+                        className="flex-1 rounded-xl border border-[#e1d8c7] bg-white p-3.5 text-xs outline-none focus:border-[#acc86c] disabled:opacity-60 text-left shadow-sm"
+                      />
+                      <button
+                        onClick={() => handleSendChatMessage()}
+                        disabled={!selectedAccountId || chatLoading || !chatInput.trim()}
+                        className="bg-[#123b23] hover:bg-[#1d4c2b] text-white px-6 py-3.5 rounded-xl text-xs font-bold transition disabled:opacity-50 shadow-sm"
+                      >
+                        Send
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1173,8 +1805,8 @@ function App() {
             {/* In-Overlay Loading Bar */}
             <div className="space-y-2 pt-2 border-t border-white/10">
               <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
-                <div 
-                  className="bg-[#acc86c] h-2 rounded-full transition-all duration-300" 
+                <div
+                  className="bg-[#acc86c] h-2 rounded-full transition-all duration-300"
                   style={{ width: `${((activeAgentIndex) / 6) * 100}%` }}
                 />
               </div>
@@ -1247,6 +1879,200 @@ function App() {
             </div>
           </div>
         </div>
+      )}
+      {/* 4. CREATE NEW ACCOUNT MODAL */}
+      {isCreateModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-md p-4 transition-all duration-300">
+          <div className="bg-[#102f1b] border border-white/20 text-white rounded-3xl p-6 max-w-md w-full mx-auto shadow-2xl space-y-4 animate-fade-in text-left">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <Plus className="h-5 w-5 text-[#acc86c]" />
+                <span className="text-sm font-bold uppercase tracking-wider">Create New Account</span>
+              </div>
+              <button
+                onClick={() => setIsCreateModalOpen(false)}
+                className="rounded-full hover:bg-white/10 p-1 text-white/70 hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Account Name */}
+              <div>
+                <label className="text-[10px] uppercase font-bold tracking-[0.1em] text-white/60 block mb-1">
+                  Account Name <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Acme Corporation"
+                  value={newAccountName}
+                  onChange={(e) => setNewAccountName(e.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white focus:border-[#acc86c] outline-none"
+                  required
+                />
+              </div>
+
+              {/* Account Owner */}
+              <div>
+                <label className="text-[10px] uppercase font-bold tracking-[0.1em] text-white/60 block mb-1">
+                  Account Owner / CS Manager <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Maya Patel"
+                  value={newAccountOwner}
+                  onChange={(e) => setNewAccountOwner(e.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white focus:border-[#acc86c] outline-none"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                {/* Stage */}
+                <div>
+                  <label className="text-[10px] uppercase font-bold tracking-[0.1em] text-white/60 block mb-1">
+                    Stage
+                  </label>
+                  <select
+                    value={newAccountStage}
+                    onChange={(e) => setNewAccountStage(e.target.value)}
+                    className="w-full rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white focus:border-[#acc86c] outline-none [&>option]:text-black"
+                  >
+                    <option value="">Select Stage</option>
+                    {selectedDomain === 'customer_success' ? (
+                      <>
+                        <option value="onboarding">Onboarding</option>
+                        <option value="early_adoption">Early Adoption</option>
+                        <option value="healthy_usage">Healthy Usage</option>
+                        <option value="renewal_risk">Renewal Risk</option>
+                        <option value="expansion">Expansion</option>
+                        <option value="renewal_negotiation">Renewal Negotiation</option>
+                        <option value="post_renewal_optimization">Post-Renewal</option>
+                        <option value="at_risk">At Risk</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="discovery">Discovery</option>
+                        <option value="proposal">Proposal</option>
+                        <option value="negotiation">Negotiation</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+
+                {/* Status */}
+                <div>
+                  <label className="text-[10px] uppercase font-bold tracking-[0.1em] text-white/60 block mb-1">
+                    Status
+                  </label>
+                  <select
+                    value={newAccountStatus}
+                    onChange={(e) => setNewAccountStatus(e.target.value)}
+                    className="w-full rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white focus:border-[#acc86c] outline-none [&>option]:text-black"
+                  >
+                    <option value="">Select Status</option>
+                    <option value="active">Active</option>
+                    <option value="healthy">Healthy</option>
+                    <option value="needs_attention">Needs Attention</option>
+                    <option value="at_risk">At Risk</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Health Score */}
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-[10px] uppercase font-bold tracking-[0.1em] text-white/60">
+                    Health Score
+                  </label>
+                  <span className="text-xs font-bold text-[#acc86c]">{newAccountHealth}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={newAccountHealth}
+                  onChange={(e) => setNewAccountHealth(Number(e.target.value))}
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[#acc86c]"
+                />
+                <div className="flex justify-between text-[8px] text-white/30 uppercase mt-1">
+                  <span>Critical</span>
+                  <span>Healthy</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-white/10 pt-4 mt-2">
+              <button
+                type="button"
+                onClick={() => setIsCreateModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold border border-white/10 text-white/80 hover:bg-white/5 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateAccount}
+                className="px-5 py-2 bg-[#acc86c] hover:bg-[#bce065] text-[#123b23] rounded-xl text-xs font-bold transition flex items-center gap-1"
+                disabled={actionLoading}
+              >
+                {actionLoading ? 'Creating...' : 'Create Account'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. CUSTOM REUSABLE CONFIRMATION MODAL OVERLAY */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-md p-4 transition-all duration-300">
+          <div className="bg-[#102f1b] border border-white/20 text-white rounded-3xl p-6 max-w-sm w-full mx-auto shadow-2xl space-y-4 animate-fade-in text-center">
+            <div className="flex flex-col items-center gap-2">
+              <span className="grid h-12 w-12 place-items-center rounded-full bg-red-500/10 text-red-400 border border-red-500/20">
+                <Shield className="h-6 w-6" />
+              </span>
+              <h3 className="text-sm font-bold uppercase tracking-wider mt-2">{confirmTitle}</h3>
+              <p className="text-xs text-white/70 leading-relaxed mt-1">{confirmDescription}</p>
+            </div>
+
+            <div className="flex justify-center gap-3 border-t border-white/10 pt-4 mt-2">
+              <button
+                type="button"
+                onClick={() => setShowConfirmModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold border border-white/10 text-white/80 hover:bg-white/5 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onConfirmCallback) onConfirmCallback();
+                }}
+                className="px-5 py-2 bg-red-650 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition shadow-sm"
+              >
+                Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sticky Floating Chatbot Icon */}
+      {user && activeTab !== 'chat' && (
+        <button
+          onClick={() => setActiveTab('chat')}
+          className="fixed bottom-6 right-6 z-50 flex items-center justify-center h-14 w-14 rounded-full bg-[#123b23] border border-[#acc86c]/30 text-white shadow-2xl hover:scale-110 active:scale-95 transition-all duration-200 group hover:border-[#acc86c]"
+          title="Open AI Account Chat"
+        >
+          {/* Pulsing indicator orb */}
+          <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#acc86c] opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-[#acc86c]"></span>
+          </span>
+          <Sparkles className="h-6 w-6 text-[#acc86c] group-hover:rotate-12 transition-transform duration-200" />
+        </button>
       )}
 
     </div>
