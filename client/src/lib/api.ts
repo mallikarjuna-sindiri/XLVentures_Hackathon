@@ -1,4 +1,4 @@
-import type { Account, Interaction, Recommendation } from '../types';
+import type { Account, Interaction, Recommendation, Playbook, KnowledgeSource } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
@@ -19,8 +19,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export function getAccounts() {
-  return request<Account[]>('/accounts');
+export function getAccounts(domain?: string) {
+  const query = domain ? `?domain=${domain}` : '';
+  return request<Account[]>(`/accounts${query}`);
 }
 
 export function getInteractions(accountId: string) {
@@ -51,5 +52,33 @@ export function reviewRecommendation(
   return request<Recommendation>(`/recommendations/${recommendationId}/review`, {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+}
+
+export function getPlaybooks(domain?: string) {
+  const query = domain ? `?domain=${domain}` : '';
+  return request<Playbook[]>(`/playbooks${query}`);
+}
+
+export function updatePlaybook(playbookId: string, payload: Partial<Playbook>) {
+  return request<Playbook>(`/playbooks/${playbookId}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getRecommendationCopilotDraft(recommendationId: string) {
+  return request<{ draft: string }>(`/recommendations/${recommendationId}/copilot-draft`, {
+    method: 'POST',
+  });
+}
+
+export function getKnowledgeSources() {
+  return request<KnowledgeSource[]>('/knowledge-sources');
+}
+
+export function resetDatabase() {
+  return request<{ status: string; message: string }>('/reset-db', {
+    method: 'POST',
   });
 }

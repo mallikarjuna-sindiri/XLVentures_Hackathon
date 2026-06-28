@@ -5,6 +5,7 @@ export type Account = {
   healthScore: number;
   owner: string;
   status: string;
+  domain: string;
 };
 
 export type Interaction = {
@@ -17,6 +18,12 @@ export type Interaction = {
   createdAt: string;
 };
 
+export type AgentLogEntry = {
+  agent: string;
+  message: string;
+  timestamp: string;
+};
+
 export type Recommendation = {
   id: string;
   accountId: string;
@@ -27,4 +34,24 @@ export type Recommendation = {
   evidence: string[];
   status: string;
   createdAt: string;
+  agentLogs?: AgentLogEntry[];
+};
+
+export type Playbook = {
+  id: string;
+  name: string;
+  triggerRisk: string;
+  action: string;
+  priority: string;
+  confidence: number;
+  reason: string;
+  evidence: string[];
+  domain: string;
+};
+
+export type KnowledgeSource = {
+  id: string;
+  title: string;
+  type: string;
+  contentSummary: string;
 };

@@ -14,6 +14,7 @@ class AccountBase(BaseModel):
     healthScore: int = Field(ge=0, le=100)
     owner: str
     status: str
+    domain: str = "customer_success"
 
 
 class AccountOut(AccountBase):
@@ -43,8 +44,38 @@ class RecommendationOut(BaseModel):
     evidence: list[str]
     status: str
     createdAt: datetime
+    agentLogs: Optional[list[dict]] = None
 
 
 class RecommendationReview(BaseModel):
     status: Literal["approved", "rejected", "edited"]
     comments: Optional[str] = None
+
+
+class PlaybookBase(BaseModel):
+    name: str
+    triggerRisk: str
+    action: str
+    priority: str
+    confidence: float
+    reason: str
+    evidence: list[str]
+    domain: str = "customer_success"
+
+
+class PlaybookCreate(PlaybookBase):
+    pass
+
+
+class PlaybookOut(PlaybookBase):
+    id: str
+
+
+class KnowledgeSourceOut(BaseModel):
+    id: str
+    title: str
+    type: str
+    contentSummary: str
+
+
+
