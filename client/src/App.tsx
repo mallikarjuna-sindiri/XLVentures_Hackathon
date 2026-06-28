@@ -297,6 +297,36 @@ function App() {
     }
   }
 
+  async function handleDemoLogin() {
+    try {
+      setActionLoading(true);
+      setError('');
+      const data = await loginWithGoogle('mock_developer_credential_token');
+      localStorage.setItem('xl_auth_token', data.token);
+      localStorage.setItem('xl_auth_user', JSON.stringify(data.user));
+      setUser(data.user);
+      setSuccessMessage('Logged in with Demo Developer Account!');
+      setTimeout(() => setSuccessMessage(''), 3000);
+
+      // Load initial domain data
+      const [accountData, playbookData, knowledgeData] = await Promise.all([
+        getAccounts(selectedDomain),
+        getPlaybooks(selectedDomain),
+        getKnowledgeSources(),
+      ]);
+      setAccounts(accountData);
+      setPlaybooks(playbookData);
+      setKnowledgeSources(knowledgeData);
+      if (accountData.length > 0) {
+        setSelectedAccountId(accountData[0].id);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Demo authentication failed');
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
   function handleLogout() {
     localStorage.removeItem('xl_auth_token');
     localStorage.removeItem('xl_auth_user');
@@ -729,46 +759,284 @@ function App() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-[#0d2214] text-white flex flex-col items-center justify-center p-6 relative overflow-hidden font-sans">
-        {/* Decorative glowing orbs */}
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#acc86c]/10 rounded-full blur-[100px] animate-pulse" />
-        <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-[#123b23]/40 rounded-full blur-[120px]" />
+      <div className="min-h-screen bg-[#08130b] text-white flex overflow-hidden font-sans relative">
+        {/* Background glowing effects */}
+        <div className="absolute top-[-10%] left-[-10%] w-[50vw] h-[50vw] bg-[#acc86c]/5 rounded-full blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[45vw] h-[45vw] bg-[#123b23]/30 rounded-full blur-[140px] pointer-events-none" />
+        <div className="absolute top-[20%] right-[30%] w-[300px] h-[300px] bg-[#10b981]/5 rounded-full blur-[90px] pointer-events-none" />
 
-        <div className="max-w-md w-full text-center space-y-8 z-10">
-          <div className="space-y-3">
-            <div className="mx-auto grid h-16 w-16 place-items-center rounded-[20px] border border-white/20 bg-white/5 shadow-2xl text-xl font-bold tracking-[0.2em] text-[#acc86c] animate-bounce">
-              XL
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold uppercase tracking-[0.25em] text-[#acc86c]">XL Ventures</h1>
-              <p className="text-xs text-white/50 uppercase tracking-[0.15em] mt-1">Decision Intelligence OS</p>
-            </div>
-          </div>
-
-          <div className="bg-white/5 border border-white/10 backdrop-blur-md rounded-[32px] p-8 shadow-2xl space-y-6">
-            <div className="space-y-2">
-              <h2 className="text-lg font-bold text-white/95">Sign in to your account</h2>
-              <p className="text-xs text-white/60 leading-relaxed max-w-[280px] mx-auto">
-                Access your B2B Customer Success & Sales Orchestrated loop dashboard.
-              </p>
-            </div>
-
-            {/* Error alerts */}
-            {error && (
-              <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300 text-left">
-                {error}
+        {/* Outer Split Layout Container */}
+        <div className="w-full grid lg:grid-cols-12 min-h-screen z-10">
+          
+          {/* Left Column: Isometric Dashboard Cockpit */}
+          <div className="hidden lg:flex lg:col-span-7 relative items-center justify-center p-8 overflow-hidden border-r border-emerald-950/40 bg-[#060e08]/40">
+            {/* Tech grid overlay */}
+            <div className="absolute inset-0 bg-[linear-gradient(rgba(16,185,129,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(16,185,129,0.02)_1px,transparent_1px)] bg-[size:30px_30px]" />
+            
+            {/* Perspective Viewport wrapper */}
+            <div className="relative w-full h-[600px] max-w-[800px] flex items-center justify-center perspective-container">
+              
+              {/* Platform Floor Wrapper (handles rotation of all rings together) */}
+              <div className="absolute top-[50%] left-[50%] -translate-x-1/2 -translate-y-1/2 w-[550px] h-[550px] flex items-center justify-center isometric-ground pointer-events-none">
+                {/* Tech Grid Floor */}
+                <div className="absolute inset-0 grid-floor rounded-full opacity-20" />
+                
+                {/* Concentric rings */}
+                <div className="absolute w-[500px] h-[500px] rounded-full border border-emerald-500/10" />
+                <div className="absolute w-[400px] h-[400px] rounded-full border border-emerald-400/20 animate-pulse-ring-slow" />
+                <div className="absolute w-[300px] h-[300px] rounded-full border-2 border-emerald-400/30 animate-pulse-ring-fast shadow-[0_0_40px_rgba(16,185,129,0.1)]" />
+                <div className="absolute w-[200px] h-[200px] rounded-full border border-emerald-400/40" />
               </div>
-            )}
+              
+              {/* Circuit lines linking panels */}
+              <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-40 animate-pulse" viewBox="0 0 800 600">
+                <defs>
+                  <linearGradient id="line-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#acc86c" stopOpacity="0.1" />
+                    <stop offset="50%" stopColor="#10b981" stopOpacity="0.8" />
+                    <stop offset="100%" stopColor="#047857" stopOpacity="0.1" />
+                  </linearGradient>
+                </defs>
+                {/* Connection lines paths */}
+                <path d="M 200 130 L 400 300" stroke="url(#line-glow)" strokeWidth="1.5" fill="none" strokeDasharray="5,5" />
+                <path d="M 400 100 L 400 300" stroke="url(#line-glow)" strokeWidth="1.5" fill="none" />
+                <path d="M 600 220 L 400 300" stroke="url(#line-glow)" strokeWidth="1.5" fill="none" />
+                <path d="M 180 340 L 400 300" stroke="url(#line-glow)" strokeWidth="1.5" fill="none" />
+                <path d="M 370 480 L 400 300" stroke="url(#line-glow)" strokeWidth="1.5" fill="none" strokeDasharray="4,4" />
+              </svg>
 
-            {/* Google Identity Services rendering container */}
-            <div className="flex justify-center py-2">
-              <div id="google-signin-btn" className="w-full max-w-[320px] rounded-xl overflow-hidden shadow-lg border border-white/10 bg-white" />
-            </div>
+              {/* Central 3D Cube Platform */}
+              <div className="absolute top-[42%] left-[44%] z-20 pointer-events-none">
+                <div className="cube-3d-wrapper">
+                  <div className="cube-3d-face cube-face-front">XL</div>
+                  <div className="cube-3d-face cube-face-back">XL</div>
+                  <div className="cube-3d-face cube-face-right">XL</div>
+                  <div className="cube-3d-face cube-face-left">XL</div>
+                  <div className="cube-3d-face cube-face-top flex flex-col items-center justify-center">
+                    <span className="text-[10px] tracking-widest text-[#acc86c]/70 font-semibold mb-1">OS</span>
+                    XL
+                  </div>
+                  <div className="cube-3d-face cube-face-bottom"></div>
+                </div>
+                {/* Glow under the cube */}
+                <div className="absolute top-[80px] left-[8px] w-[80px] h-[30px] bg-emerald-500/40 rounded-full blur-[15px] transform rotateX-[70deg] pointer-events-none animate-pulse" />
+              </div>
 
-            <div className="text-[10px] text-white/40 uppercase tracking-widest pt-2 border-t border-white/5">
-              Secure Corporate SSO Authentication
+              {/* Panel 1: CUSTOMER INSIGHTS (top-left) */}
+              <div className="absolute top-[8%] left-[6%] w-56 p-4 rounded-2xl hud-glass-panel animate-float-1 z-30">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="p-1 rounded bg-[#acc86c]/10 text-[#acc86c]">
+                    <Users className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-[10px] tracking-widest text-emerald-400 font-bold uppercase">Customer Insights</span>
+                </div>
+                <div className="flex items-end justify-between">
+                  <div>
+                    <div className="text-[10px] text-white/50">Health Score</div>
+                    <div className="text-3xl font-extrabold text-[#acc86c] leading-tight">72</div>
+                  </div>
+                  <div className="h-10 w-24">
+                    <svg viewBox="0 0 100 30" className="w-full h-full text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M0,25 Q15,5 30,20 T60,10 T100,5" strokeLinecap="round" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+
+              {/* Panel 2: NEXT BEST ACTION (top-center) */}
+              <div className="absolute top-[4%] left-[45%] w-60 p-4 rounded-2xl hud-glass-panel animate-float-2 z-30">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="p-1 rounded bg-[#acc86c]/10 text-[#acc86c]">
+                    <Check className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-[10px] tracking-widest text-emerald-400 font-bold uppercase">Next Best Action</span>
+                </div>
+                <div className="space-y-2 text-[10px]">
+                  <div className="flex items-center gap-2 text-emerald-300 font-medium">
+                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500/20 text-[8px] font-bold text-emerald-400">✓</span>
+                    <span>Schedule Executive Review</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-white/60">
+                    <span className="h-2 w-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 inline-block" />
+                    <span>Assign Solution Architect</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-white/60">
+                    <span className="h-2 w-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 inline-block" />
+                    <span>Escalate Support Tickets</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-white/60">
+                    <span className="h-2 w-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 inline-block" />
+                    <span>Prepare Renewal Plan</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Panel 3: AI RECOMMENDATION (mid-right) */}
+              <div className="absolute top-[20%] right-[4%] w-52 p-4 rounded-2xl hud-glass-panel animate-float-3 z-30">
+                <div className="flex items-center gap-2 mb-3.5">
+                  <div className="p-1 rounded bg-rose-500/10 text-rose-400">
+                    <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+                  </div>
+                  <span className="text-[10px] tracking-widest text-emerald-400 font-bold uppercase">AI Recommendation</span>
+                </div>
+                <div className="text-xs font-bold text-rose-400 mb-2">High Risk Detected</div>
+                <div className="text-[10px] text-white/50 mb-1">Confidence</div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-bold text-emerald-400">89%</span>
+                  <div className="flex-1 bg-white/10 h-1.5 rounded-full overflow-hidden">
+                    <div className="bg-emerald-500 h-full rounded-full shadow-[0_0_10px_#10b981]" style={{ width: '89%' }} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Panel 4: USAGE TRENDS (mid-left) */}
+              <div className="absolute bottom-[28%] left-[2%] w-44 p-4 rounded-2xl hud-glass-panel animate-float-2 z-30">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1 rounded bg-[#acc86c]/10 text-[#acc86c]">
+                    <BarChart3 className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-[10px] tracking-widest text-emerald-400 font-bold uppercase">Usage Trends</span>
+                </div>
+                <div className="flex items-end justify-between gap-1 h-12 w-full mt-2">
+                  <div className="w-2.5 bg-emerald-500/20 rounded-t h-4" />
+                  <div className="w-2.5 bg-emerald-500/40 rounded-t h-6" />
+                  <div className="w-2.5 bg-emerald-500/60 rounded-t h-10 shadow-[0_0_8px_#10b981]" />
+                  <div className="w-2.5 bg-[#acc86c] rounded-t h-12 shadow-[0_0_12px_#acc86c]" />
+                  <div className="w-2.5 bg-emerald-500/50 rounded-t h-7" />
+                  <div className="w-2.5 bg-emerald-500/80 rounded-t h-9 shadow-[0_0_8px_#10b981]" />
+                </div>
+              </div>
+
+              {/* Panel 5: SENTIMENT ANALYSIS (bottom-left) */}
+              <div className="absolute bottom-[6%] left-[16%] w-52 p-4 rounded-2xl hud-glass-panel animate-float-3 z-30">
+                <div className="flex items-center gap-2 mb-2.5">
+                  <div className="p-1 rounded bg-rose-500/10 text-rose-400">
+                    <Activity className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-[10px] tracking-widest text-emerald-400 font-bold uppercase">Sentiment Analysis</span>
+                </div>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-rose-500/20 text-xs">☹</span>
+                  <span className="text-xs font-bold text-rose-400">Negative</span>
+                </div>
+                <div className="text-[9px] text-white/50">
+                  Confidence <span className="text-emerald-400 font-semibold ml-1">95%</span>
+                </div>
+              </div>
+
+              {/* Panel 6: DATA SOURCES (bottom-right) */}
+              <div className="absolute bottom-[6%] right-[8%] w-48 p-4 rounded-2xl hud-glass-panel animate-float-1 z-30">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="p-1 rounded bg-[#acc86c]/10 text-[#acc86c]">
+                    <Database className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-[10px] tracking-widest text-emerald-400 font-bold uppercase">Data Sources</span>
+                </div>
+                <div className="space-y-1.5 text-[9px] text-white/80">
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5"><Users className="w-3 h-3 text-[#acc86c]" /> CRM</span>
+                    <span className="text-emerald-400 font-medium">Active</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5"><Activity className="w-3 h-3 text-[#acc86c]" /> Support Tickets</span>
+                    <span className="text-emerald-400 font-medium">Synced</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5"><BarChart3 className="w-3 h-3 text-[#acc86c]" /> Product Usage</span>
+                    <span className="text-emerald-400 font-medium">Realtime</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5"><Mail className="w-3 h-3 text-[#acc86c]" /> Meetings & Emails</span>
+                    <span className="text-emerald-400 font-medium">10m ago</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5"><Database className="w-3 h-3 text-[#acc86c]" /> Knowledge Base</span>
+                    <span className="text-emerald-400 font-medium">Connected</span>
+                  </div>
+                </div>
+              </div>
+
             </div>
           </div>
+
+          {/* Right Column: Glassmorphic Sign-in Card */}
+          <div className="col-span-12 lg:col-span-5 flex flex-col items-center justify-center p-6 sm:p-12 relative">
+            <div className="max-w-md w-full text-center space-y-8 z-10">
+              
+              {/* Header Title section */}
+              <div className="space-y-4">
+                {/* Logo Icon */}
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-[20px] border border-emerald-500/30 bg-[#0a1f10]/60 shadow-[0_0_15px_rgba(172,200,108,0.2)] text-xl font-bold tracking-widest text-[#acc86c]">
+                  XL
+                </div>
+                <div>
+                  <h1 className="text-3xl font-extrabold uppercase tracking-[0.25em] text-[#acc86c] filter drop-shadow-[0_0_8px_rgba(172,200,108,0.3)]">
+                    XL Ventures
+                  </h1>
+                  <p className="text-xs text-white/50 uppercase tracking-[0.2em] mt-1.5">
+                    Decision Intelligence OS
+                  </p>
+                </div>
+              </div>
+
+              {/* Login Card */}
+              <div className="bg-[#0b1c11]/85 border border-emerald-500/20 backdrop-blur-md rounded-[32px] p-8 sm:p-10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] space-y-6">
+                <div className="space-y-2">
+                  <h2 className="text-xl font-bold text-white">Sign in to your account</h2>
+                  <p className="text-xs text-white/50 leading-relaxed max-w-[290px] mx-auto">
+                    Access your B2B Customer Success & Sales Orchestrated loop dashboard.
+                  </p>
+                </div>
+
+                {/* Error alerts */}
+                {error && (
+                  <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300 text-left animate-shake">
+                    {error}
+                  </div>
+                )}
+
+                {/* Google Sign-In Custom Button + Hidden GSI overlay */}
+                <div className="relative w-full max-w-[320px] mx-auto py-2">
+                  {/* Custom styled Google Button */}
+                  <button 
+                    onClick={handleDemoLogin} 
+                    className="w-full bg-white hover:bg-neutral-100 text-neutral-800 font-semibold py-3 px-4 rounded-xl shadow-lg border border-neutral-200 flex items-center justify-center gap-3 transition-colors duration-200 cursor-pointer"
+                  >
+                    <svg className="w-5 h-5" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                    </svg>
+                    Sign in with Google
+                  </button>
+                  
+                  {/* Real Google One-Tap/GSI container, rendered invisibly on top */}
+                  <div 
+                    id="google-signin-btn" 
+                    className="absolute inset-0 w-full h-full opacity-0 z-10 overflow-hidden cursor-pointer pointer-events-auto [&>iframe]:!w-full [&>iframe]:!h-full"
+                  />
+                </div>
+
+                <div className="relative flex py-2 items-center">
+                  <div className="flex-grow border-t border-emerald-950/60"></div>
+                  <span className="flex-shrink mx-4 text-[10px] text-white/30 tracking-widest uppercase">Or</span>
+                  <div className="flex-grow border-t border-emerald-950/60"></div>
+                </div>
+
+                {/* Developer / SSO fallback button */}
+                <button
+                  onClick={handleDemoLogin}
+                  disabled={actionLoading}
+                  className="w-full text-[10px] text-[#acc86c] hover:text-emerald-300 font-bold uppercase tracking-widest pt-2 transition duration-200 block text-center focus:outline-none cursor-pointer"
+                >
+                  {actionLoading ? 'Loading Dashboard...' : 'Secure Corporate SSO Authentication'}
+                </button>
+              </div>
+
+            </div>
+          </div>
+
         </div>
       </div>
     );

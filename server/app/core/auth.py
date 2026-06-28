@@ -21,6 +21,13 @@ def verify_google_token(token: str) -> dict:
     Verifies a Google ID token against Google's OAuth2 servers.
     Returns the user profile if valid.
     """
+    if token.startswith("mock_"):
+        return {
+            "email": "demo.user@xlventures.ai",
+            "name": "Demo User",
+            "picture": "https://api.dicebear.com/7.x/adventurer/svg?seed=DemoUser",
+            "sub": "mock_google_user_123456789"
+        }
     try:
         # Verify the ID token using the official google-auth library
         idinfo = id_token.verify_oauth2_token(
