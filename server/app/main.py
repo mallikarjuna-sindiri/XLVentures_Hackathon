@@ -29,7 +29,7 @@ from app.services.recommendations import analyze_interaction, build_recommendati
 from app.services.copilot import generate_action_draft
 
 
-app = FastAPI(title="XL Ventures Next Best Action API", version="0.1.0")
+app = FastAPI(title="NEXORA Next Best Action API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,

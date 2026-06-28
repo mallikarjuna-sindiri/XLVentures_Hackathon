@@ -808,13 +808,20 @@ function App() {
               {/* Central 3D Cube Platform */}
               <div className="absolute top-[42%] left-[44%] z-20 pointer-events-none">
                 <div className="cube-3d-wrapper">
-                  <div className="cube-3d-face cube-face-front">XL</div>
-                  <div className="cube-3d-face cube-face-back">XL</div>
-                  <div className="cube-3d-face cube-face-right">XL</div>
-                  <div className="cube-3d-face cube-face-left">XL</div>
-                  <div className="cube-3d-face cube-face-top flex flex-col items-center justify-center">
-                    <span className="text-[10px] tracking-widest text-[#acc86c]/70 font-semibold mb-1">OS</span>
-                    XL
+                  <div className="cube-3d-face cube-face-front flex items-center justify-center">
+                    <img src="/logo.png" alt="NEXORA logo" className="h-10 w-10 rounded-md object-cover" />
+                  </div>
+                  <div className="cube-3d-face cube-face-back flex items-center justify-center">
+                    <img src="/logo.png" alt="NEXORA logo" className="h-10 w-10 rounded-md object-cover" />
+                  </div>
+                  <div className="cube-3d-face cube-face-right flex items-center justify-center">
+                    <img src="/logo.png" alt="NEXORA logo" className="h-10 w-10 rounded-md object-cover" />
+                  </div>
+                  <div className="cube-3d-face cube-face-left flex items-center justify-center">
+                    <img src="/logo.png" alt="NEXORA logo" className="h-10 w-10 rounded-md object-cover" />
+                  </div>
+                  <div className="cube-3d-face cube-face-top flex items-center justify-center">
+                    <img src="/logo.png" alt="NEXORA logo" className="h-10 w-10 rounded-md object-cover" />
                   </div>
                   <div className="cube-3d-face cube-face-bottom"></div>
                 </div>
@@ -966,12 +973,10 @@ function App() {
               {/* Header Title section */}
               <div className="space-y-4">
                 {/* Logo Icon */}
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-[20px] border border-emerald-500/30 bg-[#0a1f10]/60 shadow-[0_0_15px_rgba(172,200,108,0.2)] text-xl font-bold tracking-widest text-[#acc86c]">
-                  XL
-                </div>
+                <img src="/logo.png" alt="NEXORA logo" className="mx-auto h-16 w-16 rounded-[20px] border border-emerald-500/30 bg-[#0a1f10]/60 object-cover shadow-[0_0_15px_rgba(172,200,108,0.2)]" />
                 <div>
                   <h1 className="text-3xl font-extrabold uppercase tracking-[0.25em] text-[#acc86c] filter drop-shadow-[0_0_8px_rgba(172,200,108,0.3)]">
-                    XL Ventures
+                    NEXORA
                   </h1>
                   <p className="text-xs text-white/50 uppercase tracking-[0.2em] mt-1.5">
                     Decision Intelligence OS
@@ -1049,9 +1054,9 @@ function App() {
       <header className="sticky top-0 z-40 border-b border-white/10 bg-[#102f1b]/95 text-white backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-[12px] border border-white/20 bg-white/10 text-md font-semibold tracking-[0.18em] text-[#acc86c]">XL</div>
+            <img src="/logo.png" alt="NEXORA logo" className="h-10 w-10 rounded-[12px] border border-white/20 bg-white/10 object-cover" />
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.32em] text-[#acc86c]">XL Ventures</div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.32em] text-[#acc86c]">NEXORA</div>
               <div className="text-sm font-medium text-white/90">Decision Intelligence OS</div>
             </div>
           </div>

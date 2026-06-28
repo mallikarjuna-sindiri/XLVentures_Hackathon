@@ -31,7 +31,7 @@ Best regards,
 
 {owner}
 Customer Success Sponsor
-XL Ventures Platform"""
+NEXORA Platform"""
 
     elif "expansion" in action or "route" in action:
         return f"""INTERNAL SALES ROUTING RECORD
@@ -59,8 +59,8 @@ Hi Team,
 
 Following up on our recent support thread, I wanted to share a few curated guides to make sure you're getting the absolute most out of your current features:
 
-• SSO Integration & Setup Best Practices: https://docs.xlventures.com/sso-integration
-• Team Onboarding Playbook: https://docs.xlventures.com/onboarding-playbook
+• SSO Integration & Setup Best Practices: https://docs.nexora.com/sso-integration
+• Team Onboarding Playbook: https://docs.nexora.com/onboarding-playbook
 
 If you have any questions or require additional technical assistance setting this up, please let me know. I'd be happy to jump on a quick screenshare!
 
@@ -68,7 +68,7 @@ Best,
 
 {owner}
 Customer Success Manager
-XL Ventures Platform"""
+NEXORA Platform"""
 
 
 async def generate_action_draft(recommendation: dict[str, Any], account: dict[str, Any]) -> str:

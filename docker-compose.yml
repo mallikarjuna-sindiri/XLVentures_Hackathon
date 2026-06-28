@@ -12,7 +12,7 @@ services:
       context: ./server
     environment:
       - MONGODB_URI=mongodb://mongo:27017
-      - MONGODB_DB=xlventures
+      - MONGODB_DB=nexora
       - CORS_ORIGINS=http://localhost:5173
     ports:
       - "8000:8000"

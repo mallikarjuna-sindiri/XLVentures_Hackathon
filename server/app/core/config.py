@@ -10,7 +10,7 @@ load_dotenv(dotenv_path=env_path)
 class Settings:
     def __init__(self) -> None:
         self.mongodb_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
-        self.mongodb_db = os.getenv("MONGODB_DB", "xlventures")
+        self.mongodb_db = os.getenv("MONGODB_DB", "nexora")
         self.gemini_api_key = os.getenv("GEMINI_API_KEY", "")
         self.cors_origins = [
             origin.strip()
@@ -25,7 +25,7 @@ class Settings:
         )
         self.jwt_secret = os.getenv(
             "JWT_SECRET", 
-            "super-secret-xl-ventures-key-change-me-at-deployment-time"
+            "super-secret-nexora-key-change-me-at-deployment-time"
         )
         self.jwt_algorithm = os.getenv("JWT_ALGORITHM", "HS256")
         self.jwt_expiration_hours = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))

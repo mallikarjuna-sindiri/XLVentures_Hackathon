@@ -1,4 +1,4 @@
-# XL Ventures Hackathon MVP
+# NEXORA Hackathon MVP
 
 A Docker-ready MVP for an Intelligent Next Best Action platform.
 

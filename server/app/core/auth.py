@@ -23,7 +23,7 @@ def verify_google_token(token: str) -> dict:
     """
     if token.startswith("mock_"):
         return {
-            "email": "demo.user@xlventures.ai",
+            "email": "demo.user@nexora.ai",
             "name": "Demo User",
             "picture": "https://api.dicebear.com/7.x/adventurer/svg?seed=DemoUser",
             "sub": "mock_google_user_123456789"
