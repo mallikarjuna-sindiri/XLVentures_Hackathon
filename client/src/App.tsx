@@ -10,6 +10,9 @@ import {
   updatePlaybook,
   getRecommendationCopilotDraft,
   getKnowledgeSources,
+  createPlaybook,
+  createKnowledgeSource,
+  getAllRecommendations,
   resetDatabase,
   loginWithGoogle,
   createAccount,
@@ -35,7 +38,7 @@ import {
   Activity,
   Clock,
   Flame,
-  DollarSign,
+  IndianRupee,
   TrendingUp,
   RefreshCw,
   Sliders,
@@ -81,6 +84,7 @@ function App() {
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [interactions, setInteractions] = useState<Interaction[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [allRecommendations, setAllRecommendations] = useState<Recommendation[]>([]);
   const [playbooks, setPlaybooks] = useState<Playbook[]>([]);
   const [knowledgeSources, setKnowledgeSources] = useState<KnowledgeSource[]>([]);
 
@@ -221,6 +225,14 @@ function App() {
     evidence: '',
   });
 
+  // Knowledge Base creation state
+  const [showKnowledgeModal, setShowKnowledgeModal] = useState(false);
+  const [knowledgeForm, setKnowledgeForm] = useState({
+    title: '',
+    type: 'COMPLIANCE POLICY',
+    contentSummary: ''
+  });
+
   // Action review state
   const [editingRecommendationId, setEditingRecommendationId] = useState('');
   const [draftDecision, setDraftDecision] = useState<'approved' | 'rejected'>('approved');
@@ -231,7 +243,68 @@ function App() {
   );
 
   const pendingRecommendations = recommendations.filter((item) => item.status === 'pending_review').length;
-  const currentStep = recommendations.length > 0 ? 4 : interactions.length > 0 ? 3 : 2;
+
+  const currentStep = useMemo(() => {
+    if (!selectedAccountId) return 1;
+    if (interactions.length === 0) return 2;
+    if (recommendations.length === 0) return 3;
+
+    const hasPending = recommendations.some((r) => r.status === 'pending_review');
+    if (hasPending) return 4;
+
+    const latestInteractionTime = Math.max(...interactions.map(i => new Date(i.createdAt).getTime()), 0);
+    const latestRecTime = Math.max(...recommendations.map(r => new Date(r.createdAt).getTime()), 0);
+    if (latestInteractionTime > latestRecTime) {
+      return 3;
+    }
+
+    return 5;
+  }, [selectedAccountId, interactions, recommendations]);
+
+  // Dynamic System Analytics calculations
+  const analyticsData = useMemo(() => {
+    const baseReviewed = 12;
+    const baseApproved = 10;
+    const userReviewed = allRecommendations.filter((r) => r.status !== 'pending_review');
+    const userApproved = userReviewed.filter((r) => r.status === 'approved' || r.status === 'edited');
+    const totalReviewed = baseReviewed + userReviewed.length;
+    const totalApproved = baseApproved + userApproved.length;
+    const acceptanceRate = ((totalApproved / totalReviewed) * 100).toFixed(1);
+
+    const totalRecs = allRecommendations.length;
+    const avgConfidence = totalRecs > 0
+      ? (allRecommendations.reduce((sum, r) => sum + r.confidence, 0) / totalRecs) * 100
+      : 78.2;
+
+    const approved = allRecommendations.filter((r) => r.status === 'approved' || r.status === 'edited');
+    const mitigatedSum = approved.reduce((acc, r) => {
+      if (r.priority === 'high') return acc + 45;
+      if (r.priority === 'medium') return acc + 25;
+      return acc + 10;
+    }, 0);
+    const mitigatedRisk = 140 + mitigatedSum;
+
+    const approvedCount = approved.length;
+    const rejectedCount = allRecommendations.filter((r) => r.status === 'rejected').length;
+    const baseTrend = [70, 75, 82, 84, 88];
+    if (approvedCount > 0 || rejectedCount > 0) {
+      const total = approvedCount + rejectedCount;
+      const rate = Math.round((approvedCount / total) * 100);
+      baseTrend[4] = Math.min(100, Math.max(50, Math.round((88 + rate) / 2)));
+    }
+    const trendPoints = baseTrend.map((val, idx) => {
+      const x = 2 + idx * 24;
+      const y = 20 - ((val - 70) * 15) / 18;
+      return { x, y, val };
+    });
+
+    return {
+      acceptanceRate: `${acceptanceRate}%`,
+      avgConfidence: `${avgConfidence.toFixed(1)}%`,
+      mitigatedRisk: `₹${mitigatedRisk}K`,
+      trendPoints
+    };
+  }, [allRecommendations]);
 
   const workflowSteps = [
     { step: '01', title: 'Select account', detail: 'Pick the customer workspace from the sidebar.' },
@@ -251,12 +324,14 @@ function App() {
   }, []);
 
   async function refreshAccountData(accountId: string) {
-    const [interactionData, recommendationData] = await Promise.all([
+    const [interactionData, recommendationData, allRecs] = await Promise.all([
       getInteractions(accountId),
       getRecommendations(accountId),
+      getAllRecommendations(),
     ]);
     setInteractions(interactionData);
     setRecommendations(recommendationData);
+    setAllRecommendations(allRecs);
   }
 
   // Load Google Identity Services GSI script
@@ -564,6 +639,7 @@ function App() {
           setSelectedAccountId('');
           setInteractions([]);
           setRecommendations([]);
+          setAllRecommendations([]);
         }
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : 'Failed to load app data');
@@ -738,6 +814,18 @@ function App() {
   }
 
   // Playbook Manager functions
+  function handleStartCreatePlaybook() {
+    setEditingPlaybookId('new');
+    setPlaybookForm({
+      name: '',
+      action: '',
+      priority: 'low',
+      confidence: 0.5,
+      reason: '',
+      evidence: 'Interaction Risk Level: Low, Active Playbook: Customer Onboarding',
+    });
+  }
+
   function handleStartEditPlaybook(playbook: Playbook) {
     setEditingPlaybookId(playbook.id);
     setPlaybookForm({
@@ -755,22 +843,49 @@ function App() {
       setActionLoading(true);
       setError('');
 
-      const updated = await updatePlaybook(playbookId, {
+      const payload = {
         name: playbookForm.name,
         action: playbookForm.action,
         priority: playbookForm.priority,
         confidence: playbookForm.confidence,
         reason: playbookForm.reason,
         evidence: playbookForm.evidence.split(',').map(item => item.trim()).filter(Boolean),
-        domain: selectedDomain
-      });
+        domain: selectedDomain,
+        triggerRisk: playbookForm.priority === 'high' ? 'high' : playbookForm.priority === 'medium' ? 'medium' : 'low'
+      };
 
-      setPlaybooks((prev) => prev.map((item) => (item.id === playbookId ? updated : item)));
+      if (playbookId === 'new') {
+        const created = await createPlaybook(payload);
+        setPlaybooks((prev) => [...prev, created]);
+        setSuccessMessage('New playbook policy created successfully.');
+      } else {
+        const updated = await updatePlaybook(playbookId, payload);
+        setPlaybooks((prev) => prev.map((item) => (item.id === playbookId ? updated : item)));
+        setSuccessMessage('Playbook policy updated successfully.');
+      }
+
       setEditingPlaybookId('');
-      setSuccessMessage('Playbook policy updated successfully.');
       setTimeout(() => setSuccessMessage(''), 4000);
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Failed to update playbook policy');
+      setError(saveError instanceof Error ? saveError.message : 'Failed to save playbook policy');
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleIndexKnowledgeSource() {
+    if (!knowledgeForm.title.trim() || !knowledgeForm.contentSummary.trim()) return;
+    try {
+      setActionLoading(true);
+      setError('');
+      const created = await createKnowledgeSource(knowledgeForm);
+      setKnowledgeSources((prev) => [...prev, created]);
+      setShowKnowledgeModal(false);
+      setKnowledgeForm({ title: '', type: 'COMPLIANCE POLICY', contentSummary: '' });
+      setSuccessMessage('New enterprise document indexed successfully.');
+      setTimeout(() => setSuccessMessage(''), 4000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to index document');
     } finally {
       setActionLoading(false);
     }
@@ -795,9 +910,9 @@ function App() {
 
         {/* Outer Split Layout Container */}
         <div className="w-full grid lg:grid-cols-12 min-h-screen z-10">
-          
+
           {/* Left Column: Isometric Dashboard Cockpit */}
-          <div 
+          <div
             ref={cockpitRef}
             onMouseMove={handleCockpitMouseMove}
             onMouseLeave={handleCockpitMouseLeave}
@@ -809,12 +924,12 @@ function App() {
           >
             {/* Tech grid overlay */}
             <div className="absolute inset-0 bg-[linear-gradient(rgba(16,185,129,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(16,185,129,0.02)_1px,transparent_1px)] bg-[size:30px_30px] pointer-events-none" />
-            
+
             {/* Perspective Viewport wrapper */}
             <div className="relative w-full h-[600px] max-w-[800px] flex items-center justify-center perspective-container">
-              
+
               {/* Platform Floor Wrapper (handles rotation of all rings together) */}
-              <div 
+              <div
                 className="absolute top-[50%] left-[50%] w-[550px] h-[550px] flex items-center justify-center isometric-ground pointer-events-none transition-transform duration-300 ease-out"
                 style={{
                   transform: 'translate(calc(-50% + var(--mouse-x) * 15px), calc(-50% + var(--mouse-y) * 15px)) rotateX(60deg) rotateZ(-45deg)'
@@ -822,14 +937,14 @@ function App() {
               >
                 {/* Tech Grid Floor */}
                 <div className="absolute inset-0 grid-floor rounded-full opacity-20" />
-                
+
                 {/* Concentric rings */}
                 <div className="absolute w-[500px] h-[500px] rounded-full border border-emerald-500/10" />
                 <div className="absolute w-[400px] h-[400px] rounded-full border border-emerald-400/20 animate-pulse-ring-slow" />
                 <div className="absolute w-[300px] h-[300px] rounded-full border-2 border-emerald-400/30 animate-pulse-ring-fast shadow-[0_0_40px_rgba(16,185,129,0.1)]" />
                 <div className="absolute w-[200px] h-[200px] rounded-full border border-emerald-400/40" />
               </div>
-              
+
               {/* Circuit lines linking panels */}
               <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-50" viewBox="0 0 800 600">
                 <defs>
@@ -851,6 +966,7 @@ function App() {
                 <path d="M 600 220 L 400 300" stroke="url(#line-glow)" strokeWidth="1.5" fill="none" />
                 <path d="M 180 340 L 400 300" stroke="url(#line-glow)" strokeWidth="1.5" fill="none" />
                 <path d="M 370 480 L 400 300" stroke="url(#line-glow)" strokeWidth="1.5" fill="none" strokeDasharray="4,4" />
+                <path d="M 610 470 L 400 300" stroke="url(#line-glow)" strokeWidth="1.5" fill="none" strokeDasharray="5,5" />
 
                 {/* Glowing particle tracers flowing towards the cube */}
                 <circle r="4" fill="url(#particle-glow)">
@@ -868,10 +984,13 @@ function App() {
                 <circle r="4" fill="url(#particle-glow)">
                   <animateMotion dur="4.5s" repeatCount="indefinite" path="M 370 480 L 400 300" />
                 </circle>
+                <circle r="4" fill="url(#particle-glow)">
+                  <animateMotion dur="4.6s" repeatCount="indefinite" path="M 610 470 L 400 300" />
+                </circle>
               </svg>
 
               {/* Central 3D Cube Platform */}
-              <div 
+              <div
                 className="absolute top-[42%] left-[44%] z-20 pointer-events-none transition-transform duration-300 ease-out"
                 style={{
                   transform: 'translate(calc(var(--mouse-x) * -8px), calc(var(--mouse-y) * -8px))'
@@ -902,7 +1021,7 @@ function App() {
               </div>
 
               {/* Panel 1: CUSTOMER INSIGHTS (top-left) */}
-              <div 
+              <div
                 className="absolute top-[8%] left-[6%] w-56 p-4 rounded-2xl hud-glass-panel animate-float-1 z-30 transition-transform duration-300 ease-out"
                 style={{
                   transform: 'translate(calc(var(--mouse-x) * 35px), calc(var(--mouse-y) * 35px))'
@@ -931,7 +1050,7 @@ function App() {
               </div>
 
               {/* Panel 2: NEXT BEST ACTION (top-center) */}
-              <div 
+              <div
                 className="absolute top-[4%] left-[45%] w-60 p-4 rounded-2xl hud-glass-panel animate-float-2 z-30 transition-transform duration-300 ease-out"
                 style={{
                   transform: 'translate(calc(var(--mouse-x) * -20px), calc(var(--mouse-y) * -20px))'
@@ -945,16 +1064,15 @@ function App() {
                 </div>
                 <div className="space-y-2 text-[10px]">
                   {cockpitActions.map((action) => (
-                    <div 
+                    <div
                       key={action.id}
                       onClick={() => toggleCockpitAction(action.id)}
                       className="flex items-center gap-2 cursor-pointer transition-colors duration-150 hover:text-emerald-300 pointer-events-auto"
                     >
-                      <span className={`flex h-4 w-4 items-center justify-center rounded-full border border-emerald-500/40 text-[8px] font-bold transition-all duration-200 ${
-                        action.checked 
-                          ? 'bg-emerald-500/20 text-emerald-400 border-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.3)]' 
+                      <span className={`flex h-4 w-4 items-center justify-center rounded-full border border-emerald-500/40 text-[8px] font-bold transition-all duration-200 ${action.checked
+                          ? 'bg-emerald-500/20 text-emerald-400 border-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.3)]'
                           : 'bg-emerald-500/5 text-transparent hover:border-emerald-300'
-                      }`}>
+                        }`}>
                         ✓
                       </span>
                       <span className={action.checked ? 'text-emerald-300 font-medium' : 'text-white/60'}>
@@ -966,7 +1084,7 @@ function App() {
               </div>
 
               {/* Panel 3: AI RECOMMENDATION (mid-right) */}
-              <div 
+              <div
                 className="absolute top-[20%] right-[4%] w-52 p-4 rounded-2xl hud-glass-panel animate-float-3 z-30 transition-transform duration-300 ease-out"
                 style={{
                   transform: 'translate(calc(var(--mouse-x) * 45px), calc(var(--mouse-y) * 45px))'
@@ -991,7 +1109,7 @@ function App() {
               </div>
 
               {/* Panel 4: USAGE TRENDS (mid-left) */}
-              <div 
+              <div
                 className="absolute bottom-[28%] left-[2%] w-44 p-4 rounded-2xl hud-glass-panel animate-float-2 z-30 transition-transform duration-300 ease-out"
                 style={{
                   transform: 'translate(calc(var(--mouse-x) * -35px), calc(var(--mouse-y) * -35px))'
@@ -1014,8 +1132,8 @@ function App() {
               </div>
 
               {/* Panel 5: SENTIMENT ANALYSIS (bottom-left) */}
-              <div 
-                className="absolute bottom-[6%] left-[16%] w-52 p-4 rounded-2xl hud-glass-panel animate-float-3 z-30 transition-transform duration-300 ease-out"
+              <div
+                className="absolute bottom-[6%] left-[26%] w-52 p-4 rounded-2xl hud-glass-panel animate-float-3 z-30 transition-transform duration-300 ease-out"
                 style={{
                   transform: 'translate(calc(var(--mouse-x) * 25px), calc(var(--mouse-y) * -25px))'
                 }}
@@ -1029,7 +1147,7 @@ function App() {
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="flex h-5 w-5 items-center justify-center rounded-full bg-rose-500/20 text-xs animate-pulse">☹</span>
                   <span className="text-xs font-bold text-rose-400">Negative</span>
-                  
+
                   {/* Realtime animated wave bars */}
                   <div className="flex gap-[2.5px] items-center h-3 ml-auto opacity-75">
                     <div className="w-[2px] bg-rose-400 rounded-full h-full animate-[pulse-bar_0.8s_infinite_alternate]" />
@@ -1044,7 +1162,7 @@ function App() {
               </div>
 
               {/* Panel 6: DATA SOURCES (bottom-right) */}
-              <div 
+              <div
                 className="absolute bottom-[6%] right-[8%] w-48 p-4 rounded-2xl hud-glass-panel animate-float-1 z-30 transition-transform duration-300 ease-out"
                 style={{
                   transform: 'translate(calc(var(--mouse-x) * -40px), calc(var(--mouse-y) * 40px))'
@@ -1104,7 +1222,7 @@ function App() {
             <div className="absolute top-[30%] left-[50%] -translate-x-1/2 -translate-y-1/2 w-[350px] h-[350px] bg-[#acc86c]/5 rounded-full blur-[80px] pointer-events-none" />
 
             <div className="max-w-md w-full text-center space-y-8 z-10">
-              
+
               {/* Header Title section */}
               <div className="space-y-4">
                 {/* Logo Icon */}
@@ -1138,22 +1256,22 @@ function App() {
                 {/* Google Sign-In Custom Button + Hidden GSI overlay */}
                 <div className="relative w-full max-w-[320px] mx-auto py-2">
                   {/* Custom styled Google Button */}
-                  <button 
-                    onClick={handleDemoLogin} 
+                  <button
+                    onClick={handleDemoLogin}
                     className="w-full bg-white hover:bg-neutral-100 text-neutral-800 font-semibold py-3 px-4 rounded-xl shadow-lg border border-neutral-200 flex items-center justify-center gap-3 transition-colors duration-200 cursor-pointer hover:shadow-[0_0_15px_rgba(255,255,255,0.4)]"
                   >
                     <svg className="w-5 h-5" viewBox="0 0 24 24">
-                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
-                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
                     </svg>
                     Sign in with Google
                   </button>
-                  
+
                   {/* Real Google One-Tap/GSI container, rendered invisibly on top */}
-                  <div 
-                    id="google-signin-btn" 
+                  <div
+                    id="google-signin-btn"
                     className="absolute inset-0 w-full h-full opacity-0 z-10 overflow-hidden cursor-pointer pointer-events-auto [&>iframe]:!w-full [&>iframe]:!h-full"
                   />
                 </div>
@@ -1201,8 +1319,8 @@ function App() {
             <button
               onClick={() => { setActiveTab('planner'); setError(''); }}
               className={`px-4 py-1.5 rounded-full text-xs font-semibold tracking-[0.05em] transition flex items-center gap-2 ${activeTab === 'planner'
-                  ? 'bg-[#123b23] text-white shadow-md ring-1 ring-white/10'
-                  : 'text-white/60 hover:text-white/95'
+                ? 'bg-[#123b23] text-white shadow-md ring-1 ring-white/10'
+                : 'text-white/60 hover:text-white/95'
                 }`}
             >
               <Brain className="h-3.5 w-3.5" />
@@ -1211,8 +1329,8 @@ function App() {
             <button
               onClick={() => { setActiveTab('playbooks'); setError(''); }}
               className={`px-4 py-1.5 rounded-full text-xs font-semibold tracking-[0.05em] transition flex items-center gap-2 ${activeTab === 'playbooks'
-                  ? 'bg-[#123b23] text-white shadow-md ring-1 ring-white/10'
-                  : 'text-white/60 hover:text-white/95'
+                ? 'bg-[#123b23] text-white shadow-md ring-1 ring-white/10'
+                : 'text-white/60 hover:text-white/95'
                 }`}
             >
               <Sliders className="h-3.5 w-3.5" />
@@ -1221,8 +1339,8 @@ function App() {
             <button
               onClick={() => { setActiveTab('analytics'); setError(''); }}
               className={`px-4 py-1.5 rounded-full text-xs font-semibold tracking-[0.05em] transition flex items-center gap-2 ${activeTab === 'analytics'
-                  ? 'bg-[#123b23] text-white shadow-md ring-1 ring-white/10'
-                  : 'text-white/60 hover:text-white/95'
+                ? 'bg-[#123b23] text-white shadow-md ring-1 ring-white/10'
+                : 'text-white/60 hover:text-white/95'
                 }`}
             >
               <BarChart3 className="h-3.5 w-3.5" />
@@ -1231,8 +1349,8 @@ function App() {
             <button
               onClick={() => { setActiveTab('chat'); setError(''); }}
               className={`px-4 py-1.5 rounded-full text-xs font-semibold tracking-[0.05em] transition flex items-center gap-2 ${activeTab === 'chat'
-                  ? 'bg-[#123b23] text-white shadow-md ring-1 ring-white/10'
-                  : 'text-white/60 hover:text-white/95'
+                ? 'bg-[#123b23] text-white shadow-md ring-1 ring-white/10'
+                : 'text-white/60 hover:text-white/95'
                 }`}
             >
               <Sparkles className="h-3.5 w-3.5" />
@@ -1329,16 +1447,16 @@ function App() {
                 const isCompleted = currentStep > index + 1;
                 return (
                   <div key={step.step} className={`rounded-xl border p-3 transition-all duration-300 ${isActive
-                      ? 'border-[#acc86c]/30 bg-white/10 shadow-sm'
-                      : isCompleted
-                        ? 'border-white/5 bg-white/5 opacity-65'
-                        : 'border-white/5 bg-transparent opacity-45'
+                    ? 'border-[#acc86c]/30 bg-white/10 shadow-sm'
+                    : isCompleted
+                      ? 'border-white/5 bg-white/5 opacity-65'
+                      : 'border-white/5 bg-transparent opacity-45'
                     }`}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className={`rounded-full px-2 py-0.5 text-[9px] uppercase tracking-[0.15em] font-bold ${isActive
-                            ? 'bg-[#acc86c] text-[#123b23]'
-                            : 'bg-white/10 text-white'
+                          ? 'bg-[#acc86c] text-[#123b23]'
+                          : 'bg-white/10 text-white'
                           }`}>{step.step}</span>
                         <div className="text-xs font-semibold text-white">{step.title}</div>
                       </div>
@@ -1387,8 +1505,8 @@ function App() {
                     <button
                       key={account.id}
                       className={`w-full rounded-xl border p-3 text-left transition-all duration-200 hover:scale-[1.01] ${isActive
-                          ? 'border-[#acc86c] bg-white/12 shadow-sm'
-                          : 'border-white/5 bg-white/5 hover:bg-white/10'
+                        ? 'border-[#acc86c] bg-white/12 shadow-sm'
+                        : 'border-white/5 bg-white/5 hover:bg-white/10'
                         }`}
                       onClick={() => setSelectedAccountId(account.id)}
                     >
@@ -1432,10 +1550,10 @@ function App() {
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-md space-y-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <div className="text-[10px] uppercase tracking-[0.1em] text-white/60">Active Context Workspace</div>
+                        <div className="text-[10px] uppercase tracking-[0.1em] text-white/60">Step 3: Trigger Agentic Planner</div>
                         <div className="mt-1 text-md font-bold text-white">{selectedAccount?.name}</div>
                       </div>
-                      <span className="rounded-full bg-white/10 border border-white/10 px-2.5 py-1 text-xs font-semibold">Step {currentStep}/5</span>
+                      <span className="rounded-full bg-white/10 border border-white/10 px-2.5 py-1 text-xs font-semibold">Step 3/5</span>
                     </div>
 
                     <div className="border-t border-white/10 pt-4 space-y-2">
@@ -1462,13 +1580,13 @@ function App() {
 
               {/* Steps Area */}
               <section className="grid gap-6 xl:grid-cols-[1fr_0.95fr]">
-                {/* Steps 1 & 2: Signal Ingestion */}
+                {/* Step 2: Signal Ingestion */}
                 <div className="rounded-[24px] border border-[#e2d8c2] bg-[#fbf7ef] p-6 shadow-sm flex flex-col justify-between">
                   <div>
                     <div className="flex items-center justify-between mb-4">
                       <div>
                         <span className="text-[10px] uppercase font-bold tracking-[0.2em] text-[#7a786f]">Ingestion Phase</span>
-                        <h3 className="text-md font-bold text-[#123b23] mt-1">Steps 1 & 2: Capture Customer Signal</h3>
+                        <h3 className="text-md font-bold text-[#123b23] mt-1">Step 2: Capture Customer Signal</h3>
                       </div>
                       <span className="rounded-full bg-[#edf3e1] px-3 py-1 text-xs font-semibold text-[#52702f]">Action Signal Input</span>
                     </div>
@@ -1491,12 +1609,41 @@ function App() {
                       <div className="flex flex-col">
                         <label className="text-[10px] uppercase tracking-[0.1em] text-[#7a786f] mb-1 font-bold">Interaction Copy / Transcript</label>
                         <textarea
-                          rows={5}
+                          rows={4}
                           className="rounded-xl border border-[#e1d8c7] bg-white px-3 py-2 text-xs text-[#1a1f16] outline-none placeholder:text-[#979287] focus:border-[#acc86c] focus:ring-1 focus:ring-[#acc86c]"
                           value={text}
                           onChange={(e) => setText(e.target.value)}
                           placeholder="Paste email, support request logs, or customer meeting minutes..."
                         />
+                      </div>
+
+                      {/* Captured Signals History */}
+                      <div className="mt-5 border-t border-[#e2d8c2]/60 pt-4">
+                        <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-[0.1em] text-[#7a786f] mb-2">
+                          <Database className="h-3.5 w-3.5" /> Captured Signals History ({interactions.length})
+                        </div>
+                        {interactions.length === 0 ? (
+                          <div className="rounded-xl border border-dashed border-[#d9ccb4] bg-white/50 p-4 text-center text-xs text-[#7a786f] italic">
+                            No signals captured yet. Fill the form above and click save.
+                          </div>
+                        ) : (
+                          <div className="space-y-2 max-h-[140px] overflow-y-auto pr-1">
+                            {interactions.map((interaction) => (
+                              <div key={interaction.id} className="rounded-xl border border-[#e4d9c5] bg-white p-2.5 space-y-1 shadow-sm text-left">
+                                <div className="flex justify-between items-center text-[9px] text-[#7a786f]">
+                                  <span className="font-bold uppercase bg-[#f8f3e8] border border-[#d9ccb4] px-1.5 py-0.5 rounded">
+                                    {interaction.source.replace('_', ' ')}
+                                  </span>
+                                  <span className="font-medium">
+                                    {new Date(interaction.createdAt).toLocaleDateString()}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] font-semibold text-[#123b23] line-clamp-1">{interaction.summary}</p>
+                                <p className="text-[10px] leading-tight text-[#6a685f] line-clamp-2">{interaction.text}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1513,25 +1660,29 @@ function App() {
                   </div>
                 </div>
 
-                {/* Steps 3 & 4: Review Panel */}
+                {/* Step 4: Review Panel */}
                 <div className="rounded-[24px] border border-[#e2d8c2] bg-[#fbf7ef] p-6 shadow-sm flex flex-col justify-between">
                   <div>
                     <div className="flex items-center justify-between mb-4">
                       <div>
                         <span className="text-[10px] uppercase font-bold tracking-[0.2em] text-[#7a786f]">Governance Layer</span>
-                        <h3 className="text-md font-bold text-[#123b23] mt-1">Steps 3 & 4: Human-in-the-Loop Review</h3>
+                        <h3 className="text-md font-bold text-[#123b23] mt-1">Step 4: Human-in-the-Loop Review</h3>
                       </div>
-                      <span className="rounded-full bg-white border border-[#d9ccb4] px-3 py-1 text-xs font-semibold text-[#1a1f16]">{recommendations.length} Recommendations</span>
+                      <span className="rounded-full bg-white border border-[#d9ccb4] px-3 py-1 text-xs font-semibold text-[#1a1f16]">
+                        {recommendations.filter(r => r.status === 'pending_review').length} Pending
+                      </span>
                     </div>
 
                     <div className="space-y-4 max-h-[340px] overflow-y-auto pr-1">
-                      {recommendations.length === 0 ? (
+                      {recommendations.filter(r => r.status === 'pending_review').length === 0 ? (
                         <div className="rounded-xl border border-dashed border-[#d9ccb4] bg-white p-6 text-center text-xs text-[#7a786f]">
                           <Database className="h-6 w-6 text-[#d9ccb4] mx-auto mb-2" />
-                          No recommendations logged. Trigger the AI Planner above or submit a customer signal.
+                          {recommendations.length > 0
+                            ? "All recommendations reviewed. Head to Step 5 to view outcomes."
+                            : "No recommendations logged. Trigger the AI Planner above or submit a customer signal."}
                         </div>
                       ) : (
-                        recommendations.map((recommendation) => {
+                        recommendations.filter(r => r.status === 'pending_review').map((recommendation) => {
                           const isPending = recommendation.status === 'pending_review';
                           const isApproved = recommendation.status === 'approved';
                           const isRejected = recommendation.status === 'rejected';
@@ -1613,26 +1764,7 @@ function App() {
                                       <X className="h-3 w-3" /> Reject
                                     </button>
                                   </div>
-                                ) : (
-                                  <div className="flex gap-2">
-                                    <button
-                                      onClick={() => beginEdit(recommendation.id, recommendation.status)}
-                                      disabled={actionLoading}
-                                      className="border border-[#d9ccb4] hover:bg-white text-xs font-semibold px-3 py-1 rounded-full flex items-center gap-1 text-[#1a1f16]"
-                                    >
-                                      <Edit3 className="h-3 w-3" /> Override
-                                    </button>
-                                    {(isApproved || recommendation.status === 'edited') && (
-                                      <button
-                                        onClick={() => handleOpenCopilot(recommendation)}
-                                        className="bg-[#123b23] hover:bg-[#1d4c2b] text-[#acc86c] px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 transition shadow-sm"
-                                      >
-                                        <Sparkles className="h-3.5 w-3.5" />
-                                        Copilot Assistant
-                                      </button>
-                                    )}
-                                  </div>
-                                )}
+                                ) : null}
                               </div>
                             </article>
                           );
@@ -1652,39 +1784,112 @@ function App() {
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <span className="text-[10px] uppercase font-bold tracking-[0.2em] text-[#7a786f]">Durable Context Data</span>
-                    <h3 className="text-md font-bold text-[#123b23] mt-1">Step 5: Account Signal Log & Learning History ledgers</h3>
+                    <h3 className="text-md font-bold text-[#123b23] mt-1">Step 5: Audited Outcomes & Memory Ledgers</h3>
                   </div>
                   <span className="rounded-full bg-[#edf3e1] px-3 py-1 text-xs font-semibold text-[#52702f] flex items-center gap-1">
                     <Clock className="h-3.5 w-3.5" /> Memory Ledger
                   </span>
                 </div>
 
-                <div className="space-y-3 max-h-[260px] overflow-y-auto pr-1">
-                  {interactions.length === 0 ? (
+                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+                  {recommendations.filter(r => r.status !== 'pending_review').length === 0 ? (
                     <div className="rounded-xl border border-dashed border-[#d9ccb4] bg-white p-6 text-center text-xs text-[#7a786f]">
-                      No historical logs found for this account. Submit a customer signal to begin.
+                      No audited decisions in the ledger yet. Approve or reject recommendations in Step 4 to archive them here.
                     </div>
                   ) : (
-                    interactions.map((interaction) => {
-                      const isHigh = interaction.riskLevel === 'high';
-                      const isMed = interaction.riskLevel === 'medium';
+                    recommendations.filter(r => r.status !== 'pending_review').map((recommendation) => {
+                      const isApproved = recommendation.status === 'approved';
+                      const isRejected = recommendation.status === 'rejected';
+
                       return (
-                        <article key={interaction.id} className="rounded-xl border border-[#e4d9c5] bg-white p-4 flex flex-col md:flex-row md:items-start justify-between gap-3 shadow-sm">
-                          <div className="space-y-1.5 max-w-xl">
-                            <div className="flex items-center gap-2">
-                              <span className="rounded-full bg-[#f8f3e8] border border-[#d9ccb4] px-2 py-0.5 text-[9px] uppercase tracking-[0.05em] font-bold text-[#7a786f]">
-                                {interaction.source.replace('_', ' ')}
+                        <article key={recommendation.id} className="rounded-xl border border-[#e4d9c5] bg-white p-4 space-y-3 shadow-sm hover:shadow-md transition text-left">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`rounded-full px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.05em] ${priorityStyles[recommendation.priority]}`}>
+                                {recommendation.priority}
                               </span>
-                              <span className={`text-[10px] font-bold uppercase tracking-[0.05em] ${isHigh ? 'text-red-700' : isMed ? 'text-amber-700' : 'text-emerald-700'
-                                }`}>
-                                {interaction.riskLevel} Risk
+                              <span className="rounded-full bg-[#edf3e1] text-[#52702f] px-2 py-0.5 text-[10px] font-semibold">
+                                {(recommendation.confidence * 100).toFixed(0)}% confidence
                               </span>
                             </div>
-                            <h4 className="text-xs font-bold text-[#123b23]">{interaction.summary}</h4>
-                            <p className="text-[11px] leading-relaxed text-[#6a685f]">{interaction.text}</p>
+                            <span className={`rounded-full px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.05em] ${isApproved
+                                ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+                                : 'bg-red-50 border border-red-200 text-red-700'
+                              }`}>
+                              {recommendation.status.replace('_', ' ')}
+                            </span>
                           </div>
-                          <div className="text-right text-[10px] text-[#7a786f] shrink-0 font-medium">
-                            {new Date(interaction.createdAt).toLocaleDateString()} at {new Date(interaction.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+
+                          <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+                            <div className="space-y-1.5 max-w-xl">
+                              <h4 className="text-sm font-bold text-[#123b23]">{recommendation.action}</h4>
+                              <p className="text-xs leading-relaxed text-[#6a685f]">{recommendation.reason}</p>
+
+                              <div className="flex flex-wrap gap-1.5 pt-1">
+                                {recommendation.evidence.map((item) => (
+                                  <span key={item} className="rounded-md border border-[#d9ccb4] bg-[#f8f3e8] px-2 py-0.5 text-[10px] text-[#6a685f]">
+                                    {item}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="text-right text-[10px] text-[#7a786f] shrink-0 font-medium">
+                              {new Date(recommendation.createdAt).toLocaleDateString()} at {new Date(recommendation.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                          </div>
+
+                          {/* Override Controls for Audited decisions */}
+                          <div className="border-t border-[#e2d8c2] pt-3 flex items-center justify-between gap-2">
+                            {editingRecommendationId === recommendation.id ? (
+                              <div className="w-full bg-[#fbf7ef] p-3 rounded-lg border border-[#e2d8c2] space-y-3">
+                                <div className="text-[10px] uppercase font-bold text-[#7a786f]">Governance decision override</div>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => setDraftDecision('approved')}
+                                    className={`flex-1 text-center py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${draftDecision === 'approved' ? 'bg-[#123b23] text-white' : 'bg-white border border-[#d9ccb4] text-[#1a1f16]'
+                                      }`}
+                                  >
+                                    <Check className="h-3.5 w-3.5" /> Approve
+                                  </button>
+                                  <button
+                                    onClick={() => setDraftDecision('rejected')}
+                                    className={`flex-1 text-center py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${draftDecision === 'rejected' ? 'bg-red-800' : 'bg-white border border-[#d9ccb4] text-[#1a1f16]'
+                                      }`}
+                                  >
+                                    <X className="h-3.5 w-3.5" /> Reject
+                                  </button>
+                                </div>
+                                <div className="flex gap-2 justify-end pt-1">
+                                  <button
+                                    onClick={() => handleReview(recommendation.id, draftDecision)}
+                                    disabled={actionLoading}
+                                    className="bg-[#123b23] hover:bg-[#1d4c2b] text-white px-3.5 py-1.5 rounded-lg text-xs font-bold"
+                                  >
+                                    Save Override
+                                  </button>
+                                  <button onClick={cancelEdit} className="border border-[#d9ccb4] text-xs font-bold px-3 py-1.5 rounded-lg">Cancel</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex gap-2 w-full justify-between items-center">
+                                <button
+                                  onClick={() => beginEdit(recommendation.id, recommendation.status)}
+                                  disabled={actionLoading}
+                                  className="border border-[#d9ccb4] hover:bg-white text-xs font-semibold px-3 py-1 rounded-full flex items-center gap-1 text-[#1a1f16]"
+                                >
+                                  <Edit3 className="h-3 w-3" /> Override
+                                </button>
+                                {(isApproved || recommendation.status === 'edited') && (
+                                  <button
+                                    onClick={() => handleOpenCopilot(recommendation)}
+                                    className="bg-[#123b23] hover:bg-[#1d4c2b] text-[#acc86c] px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 transition shadow-sm"
+                                  >
+                                    <Sparkles className="h-3.5 w-3.5" />
+                                    Copilot Assistant
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </article>
                       );
@@ -1704,7 +1909,15 @@ function App() {
                   <h2 className="text-xl font-bold text-[#123b23] mt-1">SOP Playbook & Knowledge Repositories</h2>
                   <p className="text-xs text-[#7a786f] mt-0.5">Edit rule policies. The agent retrieves knowledge sources and playbooks dynamically based on risk triggers.</p>
                 </div>
-                <Settings className="h-6 w-6 text-[#123b23]" />
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleStartCreatePlaybook}
+                    className="rounded-full bg-[#123b23] hover:bg-[#1d4c2b] text-[#acc86c] px-4 py-2 text-xs font-bold uppercase tracking-wider transition flex items-center gap-1.5 shadow-sm"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Create Playbook
+                  </button>
+                  <Settings className="h-6 w-6 text-[#123b23]" />
+                </div>
               </div>
 
               <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
@@ -1840,8 +2053,16 @@ function App() {
 
                 {/* Knowledge Base on the Right */}
                 <div className="bg-white rounded-2xl border border-[#e4d9c5] p-5 h-fit space-y-4 shadow-sm">
-                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.1em] text-[#123b23] border-b border-[#e2d8c2] pb-3">
-                    <Database className="h-4 w-4" /> Indexed Knowledge Base
+                  <div className="flex items-center justify-between border-b border-[#e2d8c2] pb-3">
+                    <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.1em] text-[#123b23]">
+                      <Database className="h-4 w-4" /> Indexed Knowledge Base
+                    </div>
+                    <button
+                      onClick={() => setShowKnowledgeModal(true)}
+                      className="text-[10px] uppercase font-bold text-[#52702f] hover:text-[#acc86c] flex items-center gap-1 transition"
+                    >
+                      <Plus className="h-3 w-3" /> Index File
+                    </button>
                   </div>
                   <p className="text-[10px] text-[#7a786f] leading-relaxed">
                     These enterprise repositories are indexed and semantically queried by the Knowledge Retrieval Agent during decision processing.
@@ -1877,9 +2098,9 @@ function App() {
               {/* Stat Metric Cards */}
               <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
                 {[
-                  { label: 'Acceptance Rate', value: '88.4%', icon: Check, color: 'text-emerald-700' },
-                  { label: 'Avg AI Confidence', value: '78.2%', icon: TrendingUp, color: 'text-cyan-700' },
-                  { label: 'Mitigated Risk Value', value: '$140K', icon: DollarSign, color: 'text-amber-700' },
+                  { label: 'Acceptance Rate', value: analyticsData.acceptanceRate, icon: Check, color: 'text-emerald-700' },
+                  { label: 'Avg AI Confidence', value: analyticsData.avgConfidence, icon: TrendingUp, color: 'text-cyan-700' },
+                  { label: 'Mitigated Risk Value', value: analyticsData.mitigatedRisk, icon: IndianRupee, color: 'text-amber-700' },
                   { label: 'Active Playbooks', value: playbooks.length.toString(), icon: Sliders, color: 'text-purple-700' },
                 ].map((item) => (
                   <div key={item.label} className="bg-white rounded-xl border border-[#e4d9c5] p-4 flex items-center justify-between shadow-sm">
@@ -1929,11 +2150,11 @@ function App() {
                       <line x1="0" y1="25" x2="100" y2="25" stroke="#f1eade" strokeWidth="0.2" />
 
                       {/* Area beneath chart */}
-                      <path d="M 0,25 L 0,20 L 25,16 L 50,11 L 75,10 L 100,5 L 100,25 Z" fill="url(#chartGrad)" />
+                      <path d={`M 0,25 L 0,${analyticsData.trendPoints[0].y} L 25,${analyticsData.trendPoints[1].y} L 50,${analyticsData.trendPoints[2].y} L 75,${analyticsData.trendPoints[3].y} L 100,${analyticsData.trendPoints[4].y} L 100,25 Z`} fill="url(#chartGrad)" />
 
                       {/* Sparkline Path */}
                       <path
-                        d="M 0,20 L 25,16 L 50,11 L 75,10 L 100,5"
+                        d={`M 0,${analyticsData.trendPoints[0].y} L 25,${analyticsData.trendPoints[1].y} L 50,${analyticsData.trendPoints[2].y} L 75,${analyticsData.trendPoints[3].y} L 100,${analyticsData.trendPoints[4].y}`}
                         fill="none"
                         stroke="#123b23"
                         strokeWidth="1.2"
@@ -1942,20 +2163,18 @@ function App() {
                       />
 
                       {/* Points */}
-                      <circle cx="0" cy="20" r="1.5" fill="#acc86c" stroke="#123b23" strokeWidth="0.5" />
-                      <circle cx="25" cy="16" r="1.5" fill="#acc86c" stroke="#123b23" strokeWidth="0.5" />
-                      <circle cx="50" cy="11" r="1.5" fill="#acc86c" stroke="#123b23" strokeWidth="0.5" />
-                      <circle cx="75" cy="10" r="1.5" fill="#acc86c" stroke="#123b23" strokeWidth="0.5" />
-                      <circle cx="100" cy="5" r="1.5" fill="#acc86c" stroke="#123b23" strokeWidth="0.5" />
+                      {analyticsData.trendPoints.map((pt, idx) => (
+                        <circle key={idx} cx={pt.x} cy={pt.y} r="1.5" fill="#acc86c" stroke="#123b23" strokeWidth="0.5" />
+                      ))}
                     </svg>
                   </div>
 
                   <div className="flex justify-between text-[10px] text-[#7a786f] font-bold px-1 uppercase tracking-wide">
-                    <span>Mon (70%)</span>
-                    <span>Tue (75%)</span>
-                    <span>Wed (82%)</span>
-                    <span>Thu (84%)</span>
-                    <span>Fri (88%)</span>
+                    <span>Mon ({analyticsData.trendPoints[0].val}%)</span>
+                    <span>Tue ({analyticsData.trendPoints[1].val}%)</span>
+                    <span>Wed ({analyticsData.trendPoints[2].val}%)</span>
+                    <span>Thu ({analyticsData.trendPoints[3].val}%)</span>
+                    <span>Fri ({analyticsData.trendPoints[4].val}%)</span>
                   </div>
                 </div>
               </div>
@@ -2033,8 +2252,8 @@ function App() {
                             <div
                               key={thread.id}
                               className={`w-full flex items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-medium cursor-pointer transition ${isActive
-                                  ? 'bg-[#123b23]/10 text-[#123b23] border border-[#acc86c]/30'
-                                  : 'hover:bg-slate-100 text-slate-600 border border-transparent'
+                                ? 'bg-[#123b23]/10 text-[#123b23] border border-[#acc86c]/30'
+                                : 'hover:bg-slate-100 text-slate-600 border border-transparent'
                                 }`}
                               onClick={() => setActiveThreadId(thread.id)}
                             >
@@ -2461,6 +2680,82 @@ function App() {
                 className="px-5 py-2 bg-red-650 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition shadow-sm"
               >
                 Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. KNOWLEDGE BASE FILE INDEXING MODAL OVERLAY */}
+      {showKnowledgeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 transition-all duration-300">
+          <div className="bg-[#102f1b] border border-white/20 text-white rounded-3xl p-6 max-w-md w-full mx-auto shadow-2xl space-y-4 animate-fade-in text-left">
+            <div className="flex justify-between items-center border-b border-white/10 pb-3">
+              <h3 className="text-sm font-bold uppercase tracking-wider flex items-center gap-1.5 text-[#acc86c]">
+                <Database className="h-4 w-4" /> Index New Knowledge File
+              </h3>
+              <button onClick={() => setShowKnowledgeModal(false)} className="text-white/60 hover:text-white transition">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] uppercase font-bold tracking-[0.1em] text-white/60 mb-1 block">
+                  Document Title / Name
+                </label>
+                <input
+                  placeholder="e.g. SLA-Escalation-Rules.pdf"
+                  className="w-full rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white focus:border-[#acc86c] outline-none"
+                  value={knowledgeForm.title}
+                  onChange={(e) => setKnowledgeForm({ ...knowledgeForm, title: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase font-bold tracking-[0.1em] text-white/60 mb-1 block">
+                  Document Type
+                </label>
+                <select
+                  className="w-full rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white focus:border-[#acc86c] outline-none [&>option]:text-black"
+                  value={knowledgeForm.type}
+                  onChange={(e) => setKnowledgeForm({ ...knowledgeForm, type: e.target.value })}
+                >
+                  <option value="COMPLIANCE POLICY">Compliance Policy</option>
+                  <option value="PRICING REFERENCE">Pricing Reference</option>
+                  <option value="SALES SOP PLAYBOOK">Sales SOP Playbook</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase font-bold tracking-[0.1em] text-white/60 mb-1 block">
+                  Content Summary / Description
+                </label>
+                <textarea
+                  placeholder="Provide document clauses and guidelines for agent querying..."
+                  rows={4}
+                  className="w-full rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white focus:border-[#acc86c] outline-none"
+                  value={knowledgeForm.contentSummary}
+                  onChange={(e) => setKnowledgeForm({ ...knowledgeForm, contentSummary: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-white/10 pt-4 mt-2">
+              <button
+                type="button"
+                onClick={() => setShowKnowledgeModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold border border-white/10 text-white/80 hover:bg-white/5 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleIndexKnowledgeSource}
+                className="px-5 py-2 bg-[#acc86c] hover:bg-[#bce065] text-[#123b23] rounded-xl text-xs font-bold transition flex items-center gap-1 animate-pulse"
+                disabled={actionLoading || !knowledgeForm.title.trim() || !knowledgeForm.contentSummary.trim()}
+              >
+                {actionLoading ? 'Indexing...' : 'Index Document'}
               </button>
             </div>
           </div>

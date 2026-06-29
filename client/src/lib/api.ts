@@ -109,6 +109,24 @@ export function getKnowledgeSources() {
   return request<KnowledgeSource[]>('/knowledge-sources');
 }
 
+export function createKnowledgeSource(payload: Omit<KnowledgeSource, 'id'>) {
+  return request<KnowledgeSource>('/knowledge-sources', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function createPlaybook(payload: Omit<Playbook, 'id'>) {
+  return request<Playbook>('/playbooks', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getAllRecommendations() {
+  return request<Recommendation[]>('/recommendations');
+}
+
 export function resetDatabase() {
   return request<{ status: string; message: string }>('/reset-db', {
     method: 'POST',

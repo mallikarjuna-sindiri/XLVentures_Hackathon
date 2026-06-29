@@ -20,6 +20,7 @@ from app.schemas import (
     RecommendationReview,
     PlaybookCreate,
     PlaybookOut,
+    KnowledgeSourceCreate,
     KnowledgeSourceOut,
     GoogleLoginPayload,
     UserOut,
@@ -262,6 +263,15 @@ async def get_recommendations(account_id: str, current_user: UserOut = Depends(g
     return [RecommendationOut(id=str(item["_id"]), **{k: v for k, v in item.items() if k != "_id"}) for item in items]
 
 
+@app.get("/recommendations", response_model=list[RecommendationOut])
+async def list_all_recommendations(current_user: UserOut = Depends(get_current_user)) -> list[RecommendationOut]:
+    db = get_database()
+    accounts = await db.accounts.find({"userId": str(current_user.id)}).to_list(length=1000)
+    account_ids = [str(a["_id"]) for a in accounts]
+    items = await db.recommendations.find({"accountId": {"$in": account_ids}}).sort("createdAt", -1).to_list(length=1000)
+    return [RecommendationOut(id=str(item["_id"]), **{k: v for k, v in item.items() if k != "_id"}) for item in items]
+
+
 @app.post("/accounts/{account_id}/interactions", response_model=InteractionOut)
 async def create_interaction(account_id: str, payload: InteractionCreate, current_user: UserOut = Depends(get_current_user)) -> InteractionOut:
     db = get_database()
@@ -293,7 +303,14 @@ async def analyze_account(account_id: str, current_user: UserOut = Depends(get_c
 
     latest_interaction = await db.interactions.find_one({"accountId": account_id}, sort=[("createdAt", -1)])
     if not latest_interaction:
-        raise HTTPException(status_code=400, detail="No interaction available for analysis")
+        # Fallback to system generated interaction to allow analyzing the account at any time
+        health = account.get("healthScore", 100)
+        risk = "high" if health < 70 else "medium" if health < 85 else "low"
+        latest_interaction = {
+            "source": "System Monitor",
+            "text": f"Account '{account.get('name')}' is in stage '{account.get('stage')}' with a health score of {health}/100.",
+            "riskLevel": risk
+        }
 
     recommendation_data = await build_recommendation(
         InteractionCreate(source=latest_interaction["source"], text=latest_interaction["text"]),
@@ -395,5 +412,19 @@ async def list_knowledge_sources(current_user: UserOut = Depends(get_current_use
             contentSummary=item["contentSummary"]
         ) for item in items
     ]
+
+
+@app.post("/knowledge-sources", response_model=KnowledgeSourceOut)
+async def create_knowledge_source(payload: KnowledgeSourceCreate, current_user: UserOut = Depends(get_current_user)) -> KnowledgeSourceOut:
+    db = get_database()
+    source_data = payload.dict()
+    result = await db.knowledge_sources.insert_one(source_data)
+    source_data["_id"] = result.inserted_id
+    return KnowledgeSourceOut(
+        id=str(source_data["_id"]),
+        title=source_data["title"],
+        type=source_data["type"],
+        contentSummary=source_data["contentSummary"]
+    )
 
 

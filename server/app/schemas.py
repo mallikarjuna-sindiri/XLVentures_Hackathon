@@ -75,6 +75,12 @@ class PlaybookOut(PlaybookBase):
     id: str
 
 
+class KnowledgeSourceCreate(BaseModel):
+    title: str
+    type: str
+    contentSummary: str
+
+
 class KnowledgeSourceOut(BaseModel):
     id: str
     title: str
