@@ -102,6 +102,34 @@ function App() {
   const [chatLoading, setChatLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  // Interactive Cockpit Ref and State
+  const cockpitRef = useRef<HTMLDivElement>(null);
+  const [cockpitActions, setCockpitActions] = useState([
+    { id: 1, label: 'Schedule Executive Review', checked: true },
+    { id: 2, label: 'Assign Solution Architect', checked: false },
+    { id: 3, label: 'Escalate Support Tickets', checked: false },
+    { id: 4, label: 'Prepare Renewal Plan', checked: false }
+  ]);
+
+  const toggleCockpitAction = (id: number) => {
+    setCockpitActions(prev => prev.map(a => a.id === id ? { ...a, checked: !a.checked } : a));
+  };
+
+  const handleCockpitMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!cockpitRef.current) return;
+    const rect = cockpitRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width - 0.5; // -0.5 to 0.5
+    const y = (e.clientY - rect.top) / rect.height - 0.5; // -0.5 to 0.5
+    cockpitRef.current.style.setProperty('--mouse-x', `${x}`);
+    cockpitRef.current.style.setProperty('--mouse-y', `${y}`);
+  };
+
+  const handleCockpitMouseLeave = () => {
+    if (!cockpitRef.current) return;
+    cockpitRef.current.style.setProperty('--mouse-x', '0');
+    cockpitRef.current.style.setProperty('--mouse-y', '0');
+  };
+
   // Auto-scroll to bottom of chat when new messages arrive
   useEffect(() => {
     if (chatEndRef.current) {
@@ -769,15 +797,29 @@ function App() {
         <div className="w-full grid lg:grid-cols-12 min-h-screen z-10">
           
           {/* Left Column: Isometric Dashboard Cockpit */}
-          <div className="hidden lg:flex lg:col-span-7 relative items-center justify-center p-8 overflow-hidden border-r border-emerald-950/40 bg-[#060e08]/40">
+          <div 
+            ref={cockpitRef}
+            onMouseMove={handleCockpitMouseMove}
+            onMouseLeave={handleCockpitMouseLeave}
+            className="hidden lg:flex lg:col-span-7 relative items-center justify-center p-8 overflow-hidden border-r border-emerald-950/40 bg-[#060e08]/40"
+            style={{
+              '--mouse-x': '0',
+              '--mouse-y': '0',
+            } as React.CSSProperties}
+          >
             {/* Tech grid overlay */}
-            <div className="absolute inset-0 bg-[linear-gradient(rgba(16,185,129,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(16,185,129,0.02)_1px,transparent_1px)] bg-[size:30px_30px]" />
+            <div className="absolute inset-0 bg-[linear-gradient(rgba(16,185,129,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(16,185,129,0.02)_1px,transparent_1px)] bg-[size:30px_30px] pointer-events-none" />
             
             {/* Perspective Viewport wrapper */}
             <div className="relative w-full h-[600px] max-w-[800px] flex items-center justify-center perspective-container">
               
               {/* Platform Floor Wrapper (handles rotation of all rings together) */}
-              <div className="absolute top-[50%] left-[50%] -translate-x-1/2 -translate-y-1/2 w-[550px] h-[550px] flex items-center justify-center isometric-ground pointer-events-none">
+              <div 
+                className="absolute top-[50%] left-[50%] w-[550px] h-[550px] flex items-center justify-center isometric-ground pointer-events-none transition-transform duration-300 ease-out"
+                style={{
+                  transform: 'translate(calc(-50% + var(--mouse-x) * 15px), calc(-50% + var(--mouse-y) * 15px)) rotateX(60deg) rotateZ(-45deg)'
+                }}
+              >
                 {/* Tech Grid Floor */}
                 <div className="absolute inset-0 grid-floor rounded-full opacity-20" />
                 
@@ -789,13 +831,19 @@ function App() {
               </div>
               
               {/* Circuit lines linking panels */}
-              <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-40 animate-pulse" viewBox="0 0 800 600">
+              <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-50" viewBox="0 0 800 600">
                 <defs>
                   <linearGradient id="line-glow" x1="0%" y1="0%" x2="100%" y2="100%">
                     <stop offset="0%" stopColor="#acc86c" stopOpacity="0.1" />
                     <stop offset="50%" stopColor="#10b981" stopOpacity="0.8" />
                     <stop offset="100%" stopColor="#047857" stopOpacity="0.1" />
                   </linearGradient>
+                  {/* Radial gradient for particle flow */}
+                  <radialGradient id="particle-glow" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stopColor="#acc86c" stopOpacity="1" />
+                    <stop offset="30%" stopColor="#10b981" stopOpacity="0.9" />
+                    <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
+                  </radialGradient>
                 </defs>
                 {/* Connection lines paths */}
                 <path d="M 200 130 L 400 300" stroke="url(#line-glow)" strokeWidth="1.5" fill="none" strokeDasharray="5,5" />
@@ -803,34 +851,63 @@ function App() {
                 <path d="M 600 220 L 400 300" stroke="url(#line-glow)" strokeWidth="1.5" fill="none" />
                 <path d="M 180 340 L 400 300" stroke="url(#line-glow)" strokeWidth="1.5" fill="none" />
                 <path d="M 370 480 L 400 300" stroke="url(#line-glow)" strokeWidth="1.5" fill="none" strokeDasharray="4,4" />
+
+                {/* Glowing particle tracers flowing towards the cube */}
+                <circle r="4" fill="url(#particle-glow)">
+                  <animateMotion dur="4.2s" repeatCount="indefinite" path="M 200 130 L 400 300" />
+                </circle>
+                <circle r="4.5" fill="url(#particle-glow)">
+                  <animateMotion dur="3.5s" repeatCount="indefinite" path="M 400 100 L 400 300" />
+                </circle>
+                <circle r="4" fill="url(#particle-glow)">
+                  <animateMotion dur="4.8s" repeatCount="indefinite" path="M 600 220 L 400 300" />
+                </circle>
+                <circle r="4.5" fill="url(#particle-glow)">
+                  <animateMotion dur="3.9s" repeatCount="indefinite" path="M 180 340 L 400 300" />
+                </circle>
+                <circle r="4" fill="url(#particle-glow)">
+                  <animateMotion dur="4.5s" repeatCount="indefinite" path="M 370 480 L 400 300" />
+                </circle>
               </svg>
 
               {/* Central 3D Cube Platform */}
-              <div className="absolute top-[42%] left-[44%] z-20 pointer-events-none">
+              <div 
+                className="absolute top-[42%] left-[44%] z-20 pointer-events-none transition-transform duration-300 ease-out"
+                style={{
+                  transform: 'translate(calc(var(--mouse-x) * -8px), calc(var(--mouse-y) * -8px))'
+                }}
+              >
                 <div className="cube-3d-wrapper">
                   <div className="cube-3d-face cube-face-front flex items-center justify-center">
-                    <img src="/logo.png" alt="NEXORA logo" className="h-10 w-10 rounded-md object-cover" />
+                    <img src="/logo.png" alt="NEXORA logo" className="h-16 w-16 rounded-md object-cover" />
                   </div>
                   <div className="cube-3d-face cube-face-back flex items-center justify-center">
-                    <img src="/logo.png" alt="NEXORA logo" className="h-10 w-10 rounded-md object-cover" />
+                    <img src="/logo.png" alt="NEXORA logo" className="h-16 w-16 rounded-md object-cover" />
                   </div>
                   <div className="cube-3d-face cube-face-right flex items-center justify-center">
-                    <img src="/logo.png" alt="NEXORA logo" className="h-10 w-10 rounded-md object-cover" />
+                    <img src="/logo.png" alt="NEXORA logo" className="h-16 w-16 rounded-md object-cover" />
                   </div>
                   <div className="cube-3d-face cube-face-left flex items-center justify-center">
-                    <img src="/logo.png" alt="NEXORA logo" className="h-10 w-10 rounded-md object-cover" />
+                    <img src="/logo.png" alt="NEXORA logo" className="h-16 w-16 rounded-md object-cover" />
                   </div>
                   <div className="cube-3d-face cube-face-top flex items-center justify-center">
-                    <img src="/logo.png" alt="NEXORA logo" className="h-10 w-10 rounded-md object-cover" />
+                    <img src="/logo.png" alt="NEXORA logo" className="h-16 w-16 rounded-md object-cover" />
                   </div>
-                  <div className="cube-3d-face cube-face-bottom"></div>
+                  <div className="cube-3d-face cube-face-bottom flex items-center justify-center">
+                    <img src="/logo.png" alt="NEXORA logo" className="h-16 w-16 rounded-md object-cover" />
+                  </div>
                 </div>
                 {/* Glow under the cube */}
                 <div className="absolute top-[80px] left-[8px] w-[80px] h-[30px] bg-emerald-500/40 rounded-full blur-[15px] transform rotateX-[70deg] pointer-events-none animate-pulse" />
               </div>
 
               {/* Panel 1: CUSTOMER INSIGHTS (top-left) */}
-              <div className="absolute top-[8%] left-[6%] w-56 p-4 rounded-2xl hud-glass-panel animate-float-1 z-30">
+              <div 
+                className="absolute top-[8%] left-[6%] w-56 p-4 rounded-2xl hud-glass-panel animate-float-1 z-30 transition-transform duration-300 ease-out"
+                style={{
+                  transform: 'translate(calc(var(--mouse-x) * 35px), calc(var(--mouse-y) * 35px))'
+                }}
+              >
                 <div className="flex items-center gap-2 mb-3">
                   <div className="p-1 rounded bg-[#acc86c]/10 text-[#acc86c]">
                     <Users className="w-3.5 h-3.5" />
@@ -842,16 +919,24 @@ function App() {
                     <div className="text-[10px] text-white/50">Health Score</div>
                     <div className="text-3xl font-extrabold text-[#acc86c] leading-tight">72</div>
                   </div>
-                  <div className="h-10 w-24">
-                    <svg viewBox="0 0 100 30" className="w-full h-full text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <div className="h-10 w-24 relative overflow-visible">
+                    <svg viewBox="0 0 100 30" className="w-full h-full text-emerald-400 overflow-visible" fill="none" stroke="currentColor" strokeWidth="2.5">
                       <path d="M0,25 Q15,5 30,20 T60,10 T100,5" strokeLinecap="round" />
+                      <circle r="3" fill="#acc86c" className="animate-ping">
+                        <animateMotion dur="4s" repeatCount="indefinite" path="M0,25 Q15,5 30,20 T60,10 T100,5" />
+                      </circle>
                     </svg>
                   </div>
                 </div>
               </div>
 
               {/* Panel 2: NEXT BEST ACTION (top-center) */}
-              <div className="absolute top-[4%] left-[45%] w-60 p-4 rounded-2xl hud-glass-panel animate-float-2 z-30">
+              <div 
+                className="absolute top-[4%] left-[45%] w-60 p-4 rounded-2xl hud-glass-panel animate-float-2 z-30 transition-transform duration-300 ease-out"
+                style={{
+                  transform: 'translate(calc(var(--mouse-x) * -20px), calc(var(--mouse-y) * -20px))'
+                }}
+              >
                 <div className="flex items-center gap-2 mb-3">
                   <div className="p-1 rounded bg-[#acc86c]/10 text-[#acc86c]">
                     <Check className="w-3.5 h-3.5" />
@@ -859,63 +944,82 @@ function App() {
                   <span className="text-[10px] tracking-widest text-emerald-400 font-bold uppercase">Next Best Action</span>
                 </div>
                 <div className="space-y-2 text-[10px]">
-                  <div className="flex items-center gap-2 text-emerald-300 font-medium">
-                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500/20 text-[8px] font-bold text-emerald-400">✓</span>
-                    <span>Schedule Executive Review</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-white/60">
-                    <span className="h-2 w-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 inline-block" />
-                    <span>Assign Solution Architect</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-white/60">
-                    <span className="h-2 w-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 inline-block" />
-                    <span>Escalate Support Tickets</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-white/60">
-                    <span className="h-2 w-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 inline-block" />
-                    <span>Prepare Renewal Plan</span>
-                  </div>
+                  {cockpitActions.map((action) => (
+                    <div 
+                      key={action.id}
+                      onClick={() => toggleCockpitAction(action.id)}
+                      className="flex items-center gap-2 cursor-pointer transition-colors duration-150 hover:text-emerald-300 pointer-events-auto"
+                    >
+                      <span className={`flex h-4 w-4 items-center justify-center rounded-full border border-emerald-500/40 text-[8px] font-bold transition-all duration-200 ${
+                        action.checked 
+                          ? 'bg-emerald-500/20 text-emerald-400 border-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.3)]' 
+                          : 'bg-emerald-500/5 text-transparent hover:border-emerald-300'
+                      }`}>
+                        ✓
+                      </span>
+                      <span className={action.checked ? 'text-emerald-300 font-medium' : 'text-white/60'}>
+                        {action.label}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
 
               {/* Panel 3: AI RECOMMENDATION (mid-right) */}
-              <div className="absolute top-[20%] right-[4%] w-52 p-4 rounded-2xl hud-glass-panel animate-float-3 z-30">
+              <div 
+                className="absolute top-[20%] right-[4%] w-52 p-4 rounded-2xl hud-glass-panel animate-float-3 z-30 transition-transform duration-300 ease-out"
+                style={{
+                  transform: 'translate(calc(var(--mouse-x) * 45px), calc(var(--mouse-y) * 45px))'
+                }}
+              >
                 <div className="flex items-center gap-2 mb-3.5">
                   <div className="p-1 rounded bg-rose-500/10 text-rose-400">
                     <Sparkles className="w-3.5 h-3.5 animate-pulse" />
                   </div>
                   <span className="text-[10px] tracking-widest text-emerald-400 font-bold uppercase">AI Recommendation</span>
                 </div>
-                <div className="text-xs font-bold text-rose-400 mb-2">High Risk Detected</div>
+                <div className="text-xs font-bold text-rose-400 mb-2 animate-pulse">High Risk Detected</div>
                 <div className="text-[10px] text-white/50 mb-1">Confidence</div>
                 <div className="flex items-center gap-3">
                   <span className="text-sm font-bold text-emerald-400">89%</span>
-                  <div className="flex-1 bg-white/10 h-1.5 rounded-full overflow-hidden">
-                    <div className="bg-emerald-500 h-full rounded-full shadow-[0_0_10px_#10b981]" style={{ width: '89%' }} />
+                  <div className="flex-1 bg-white/10 h-1.5 rounded-full overflow-hidden relative">
+                    <div className="bg-emerald-500 h-full rounded-full shadow-[0_0_10px_#10b981] relative overflow-hidden" style={{ width: '89%' }}>
+                      <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.4),transparent)] animate-scanning-beam w-1/2 h-full" />
+                    </div>
                   </div>
                 </div>
               </div>
 
               {/* Panel 4: USAGE TRENDS (mid-left) */}
-              <div className="absolute bottom-[28%] left-[2%] w-44 p-4 rounded-2xl hud-glass-panel animate-float-2 z-30">
+              <div 
+                className="absolute bottom-[28%] left-[2%] w-44 p-4 rounded-2xl hud-glass-panel animate-float-2 z-30 transition-transform duration-300 ease-out"
+                style={{
+                  transform: 'translate(calc(var(--mouse-x) * -35px), calc(var(--mouse-y) * -35px))'
+                }}
+              >
                 <div className="flex items-center gap-2 mb-2">
                   <div className="p-1 rounded bg-[#acc86c]/10 text-[#acc86c]">
                     <BarChart3 className="w-3.5 h-3.5" />
                   </div>
                   <span className="text-[10px] tracking-widest text-emerald-400 font-bold uppercase">Usage Trends</span>
                 </div>
-                <div className="flex items-end justify-between gap-1 h-12 w-full mt-2">
-                  <div className="w-2.5 bg-emerald-500/20 rounded-t h-4" />
-                  <div className="w-2.5 bg-emerald-500/40 rounded-t h-6" />
-                  <div className="w-2.5 bg-emerald-500/60 rounded-t h-10 shadow-[0_0_8px_#10b981]" />
-                  <div className="w-2.5 bg-[#acc86c] rounded-t h-12 shadow-[0_0_12px_#acc86c]" />
-                  <div className="w-2.5 bg-emerald-500/50 rounded-t h-7" />
-                  <div className="w-2.5 bg-emerald-500/80 rounded-t h-9 shadow-[0_0_8px_#10b981]" />
+                <div className="flex items-end justify-between gap-1 h-12 w-full mt-2 overflow-visible">
+                  <div className="w-2.5 bg-emerald-500/20 rounded-t bar-anim-1" />
+                  <div className="w-2.5 bg-emerald-500/40 rounded-t bar-anim-2" />
+                  <div className="w-2.5 bg-emerald-500/60 rounded-t shadow-[0_0_8px_#10b981] bar-anim-3" />
+                  <div className="w-2.5 bg-[#acc86c] rounded-t shadow-[0_0_12px_#acc86c] bar-anim-4" />
+                  <div className="w-2.5 bg-emerald-500/50 rounded-t bar-anim-5" />
+                  <div className="w-2.5 bg-emerald-500/80 rounded-t shadow-[0_0_8px_#10b981] bar-anim-6" />
                 </div>
               </div>
 
               {/* Panel 5: SENTIMENT ANALYSIS (bottom-left) */}
-              <div className="absolute bottom-[6%] left-[16%] w-52 p-4 rounded-2xl hud-glass-panel animate-float-3 z-30">
+              <div 
+                className="absolute bottom-[6%] left-[16%] w-52 p-4 rounded-2xl hud-glass-panel animate-float-3 z-30 transition-transform duration-300 ease-out"
+                style={{
+                  transform: 'translate(calc(var(--mouse-x) * 25px), calc(var(--mouse-y) * -25px))'
+                }}
+              >
                 <div className="flex items-center gap-2 mb-2.5">
                   <div className="p-1 rounded bg-rose-500/10 text-rose-400">
                     <Activity className="w-3.5 h-3.5" />
@@ -923,8 +1027,16 @@ function App() {
                   <span className="text-[10px] tracking-widest text-emerald-400 font-bold uppercase">Sentiment Analysis</span>
                 </div>
                 <div className="flex items-center gap-2 mb-1.5">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-rose-500/20 text-xs">☹</span>
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-rose-500/20 text-xs animate-pulse">☹</span>
                   <span className="text-xs font-bold text-rose-400">Negative</span>
+                  
+                  {/* Realtime animated wave bars */}
+                  <div className="flex gap-[2.5px] items-center h-3 ml-auto opacity-75">
+                    <div className="w-[2px] bg-rose-400 rounded-full h-full animate-[pulse-bar_0.8s_infinite_alternate]" />
+                    <div className="w-[2px] bg-rose-400 rounded-full h-1/2 animate-[pulse-bar_1.1s_infinite_alternate_0.2s]" />
+                    <div className="w-[2px] bg-rose-400 rounded-full h-3/4 animate-[pulse-bar_0.7s_infinite_alternate_0.4s]" />
+                    <div className="w-[2px] bg-rose-400 rounded-full h-1/3 animate-[pulse-bar_1.3s_infinite_alternate_0.1s]" />
+                  </div>
                 </div>
                 <div className="text-[9px] text-white/50">
                   Confidence <span className="text-emerald-400 font-semibold ml-1">95%</span>
@@ -932,7 +1044,12 @@ function App() {
               </div>
 
               {/* Panel 6: DATA SOURCES (bottom-right) */}
-              <div className="absolute bottom-[6%] right-[8%] w-48 p-4 rounded-2xl hud-glass-panel animate-float-1 z-30">
+              <div 
+                className="absolute bottom-[6%] right-[8%] w-48 p-4 rounded-2xl hud-glass-panel animate-float-1 z-30 transition-transform duration-300 ease-out"
+                style={{
+                  transform: 'translate(calc(var(--mouse-x) * -40px), calc(var(--mouse-y) * 40px))'
+                }}
+              >
                 <div className="flex items-center gap-2 mb-3">
                   <div className="p-1 rounded bg-[#acc86c]/10 text-[#acc86c]">
                     <Database className="w-3.5 h-3.5" />
@@ -942,23 +1059,38 @@ function App() {
                 <div className="space-y-1.5 text-[9px] text-white/80">
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5"><Users className="w-3 h-3 text-[#acc86c]" /> CRM</span>
-                    <span className="text-emerald-400 font-medium">Active</span>
+                    <span className="text-emerald-400 font-medium flex items-center gap-1">
+                      <span className="h-1 w-1 rounded-full bg-emerald-400 animate-ping inline-block" />
+                      Active
+                    </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5"><Activity className="w-3 h-3 text-[#acc86c]" /> Support Tickets</span>
-                    <span className="text-emerald-400 font-medium">Synced</span>
+                    <span className="text-emerald-400 font-medium flex items-center gap-1">
+                      <span className="h-1 w-1 rounded-full bg-emerald-400 animate-ping inline-block" />
+                      Synced
+                    </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5"><BarChart3 className="w-3 h-3 text-[#acc86c]" /> Product Usage</span>
-                    <span className="text-emerald-400 font-medium">Realtime</span>
+                    <span className="text-emerald-400 font-medium flex items-center gap-1">
+                      <span className="h-1 w-1 rounded-full bg-emerald-400 animate-ping inline-block" />
+                      Realtime
+                    </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5"><Mail className="w-3 h-3 text-[#acc86c]" /> Meetings & Emails</span>
-                    <span className="text-emerald-400 font-medium">10m ago</span>
+                    <span className="text-emerald-400 font-medium flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block" />
+                      10m ago
+                    </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5"><Database className="w-3 h-3 text-[#acc86c]" /> Knowledge Base</span>
-                    <span className="text-emerald-400 font-medium">Connected</span>
+                    <span className="text-emerald-400 font-medium flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block" />
+                      Connected
+                    </span>
                   </div>
                 </div>
               </div>
@@ -966,14 +1098,17 @@ function App() {
             </div>
           </div>
 
-          {/* Right Column: Glassmorphic Sign-in Card */}
+          {/* Right Column: Sleek Glassmorphic Sign-in Card with Cyberpunk Accents */}
           <div className="col-span-12 lg:col-span-5 flex flex-col items-center justify-center p-6 sm:p-12 relative">
+            {/* Soft background ambient glow */}
+            <div className="absolute top-[30%] left-[50%] -translate-x-1/2 -translate-y-1/2 w-[350px] h-[350px] bg-[#acc86c]/5 rounded-full blur-[80px] pointer-events-none" />
+
             <div className="max-w-md w-full text-center space-y-8 z-10">
               
               {/* Header Title section */}
               <div className="space-y-4">
                 {/* Logo Icon */}
-                <img src="/logo.png" alt="NEXORA logo" className="mx-auto h-16 w-16 rounded-[20px] border border-emerald-500/30 bg-[#0a1f10]/60 object-cover shadow-[0_0_15px_rgba(172,200,108,0.2)]" />
+                <img src="/logo.png" alt="NEXORA logo" className="mx-auto h-16 w-16 rounded-[20px] border border-emerald-500/30 bg-[#0a1f10]/60 object-cover shadow-[0_0_15px_rgba(172,200,108,0.2)] animate-pulse" />
                 <div>
                   <h1 className="text-3xl font-extrabold uppercase tracking-[0.25em] text-[#acc86c] filter drop-shadow-[0_0_8px_rgba(172,200,108,0.3)]">
                     NEXORA
@@ -984,8 +1119,8 @@ function App() {
                 </div>
               </div>
 
-              {/* Login Card */}
-              <div className="bg-[#0b1c11]/85 border border-emerald-500/20 backdrop-blur-md rounded-[32px] p-8 sm:p-10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] space-y-6">
+              {/* Login Card with Corner Cyberpunk Glowing Brackets */}
+              <div className="glass-card-glow rounded-[32px] p-8 sm:p-10 space-y-6">
                 <div className="space-y-2">
                   <h2 className="text-xl font-bold text-white">Sign in to your account</h2>
                   <p className="text-xs text-white/50 leading-relaxed max-w-[290px] mx-auto">
@@ -1005,7 +1140,7 @@ function App() {
                   {/* Custom styled Google Button */}
                   <button 
                     onClick={handleDemoLogin} 
-                    className="w-full bg-white hover:bg-neutral-100 text-neutral-800 font-semibold py-3 px-4 rounded-xl shadow-lg border border-neutral-200 flex items-center justify-center gap-3 transition-colors duration-200 cursor-pointer"
+                    className="w-full bg-white hover:bg-neutral-100 text-neutral-800 font-semibold py-3 px-4 rounded-xl shadow-lg border border-neutral-200 flex items-center justify-center gap-3 transition-colors duration-200 cursor-pointer hover:shadow-[0_0_15px_rgba(255,255,255,0.4)]"
                   >
                     <svg className="w-5 h-5" viewBox="0 0 24 24">
                       <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
