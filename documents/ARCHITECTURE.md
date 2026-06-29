@@ -70,7 +70,7 @@ The architecture is built around six principles:
 5. **Tool-driven**: agents use tools instead of embedding all logic in one model prompt.
 6. **Configurable**: business rules, workflows, and knowledge sources can be swapped without rebuilding the platform.
 
-## 4. High-Level Architecture
+## 4. High-Level Design (HLD)
 
 ```mermaid
 flowchart LR
@@ -557,7 +557,7 @@ For the hackathon demo, the storyline should be:
 6. The user reviews and approves one action.
 7. The system stores feedback and updates memory.
 
-## 20. Why This Architecture Fits the Challenge
+## 20. Key Design Decisions
 
 This design aligns with the challenge because it is:
 
